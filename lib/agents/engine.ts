@@ -1,0 +1,333 @@
+import 'server-only';
+import { uuid } from '@/lib/ids';
+import type { DataStore } from '@/lib/db/tables';
+import { getProvider, providerIsLive } from '@/lib/integrations/ai';
+import { StructuredOutputError } from '@/lib/integrations/ai/types';
+import type { Agent, Approval, Task } from '@/types/domain';
+import { logActivity, notify } from './activity';
+import { canPerform } from './authority';
+import { getCapabilityHandler, type ApprovalRequest } from './capabilities';
+import {
+  loadPreviousOutputs,
+  loadRelevantMemory,
+  type RunContext,
+} from './context';
+
+export interface RunAgentResult {
+  taskId: string;
+  status: Task['status'];
+  summary: string;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  approvalId: string | null;
+  blocked: string | null;
+  simulated: boolean;
+}
+
+/**
+ * The single agent execution path. Nothing else in the application calls an AI
+ * provider — adding a capability means adding a handler, never duplicating this.
+ *
+ * Sequence: load → authorise → mark running → build prompt → call provider →
+ * validate → persist → record usage → update stats → log → raise approval.
+ */
+export async function runAgent(
+  store: DataStore,
+  ownerId: string,
+  taskId: string,
+): Promise<RunAgentResult> {
+  const task = await store.get('tasks', taskId);
+  if (!task) throw new Error(`No task with id ${taskId}`);
+  if (!task.agent_id) throw new Error(`Task ${taskId} has no assigned agent`);
+
+  const agent = await store.get('agents', task.agent_id);
+  if (!agent) throw new Error(`No agent with id ${task.agent_id}`);
+
+  if (agent.status === 'disabled' || agent.status === 'offline') {
+    return fail(store, ownerId, task, agent, `${agent.name} is ${agent.status}.`);
+  }
+
+  // Producing work is a level-1 action. Refuse rather than silently proceeding.
+  const decision = canPerform(agent.authority_level, 'draft');
+  if (!decision.allowed) {
+    return fail(store, ownerId, task, agent, decision.reason);
+  }
+
+  const capability = agent.capabilities[0];
+  const handler = capability ? getCapabilityHandler(capability) : undefined;
+  if (!handler) {
+    return fail(
+      store,
+      ownerId,
+      task,
+      agent,
+      `${agent.name} has no handler for capability "${capability ?? 'none'}".`,
+    );
+  }
+
+  const startedAt = new Date().toISOString();
+  await store.update('tasks', task.id, {
+    status: 'running',
+    started_at: task.started_at ?? startedAt,
+    progress: 5,
+    error: null,
+  });
+  await store.update('agents', agent.id, {
+    status: 'working',
+    current_task_id: task.id,
+    updated_at: startedAt,
+  });
+  await logActivity(store, {
+    ownerId,
+    businessId: task.business_id,
+    missionId: task.mission_id,
+    taskId: task.id,
+    agentId: agent.id,
+    kind: 'agent_started',
+    message: `${agent.name} started "${task.title}"`,
+  });
+
+  const began = Date.now();
+
+  try {
+    const ctx: RunContext = {
+      store,
+      ownerId,
+      agent,
+      task: { ...task, status: 'running' },
+      mission: task.mission_id ? await store.get('missions', task.mission_id) : null,
+      business: task.business_id ? await store.get('businesses', task.business_id) : null,
+      memory: await loadRelevantMemory(store, agent),
+      previousOutputs: await loadPreviousOutputs(store, task.mission_id, task.id),
+    };
+
+    const prompt = await handler.buildPrompt(ctx);
+    const provider = getProvider(agent.provider);
+    const simulated = !providerIsLive(agent.provider);
+
+    await store.update('tasks', task.id, { progress: 25 });
+
+    const result = await provider.generateStructured({
+      system: agent.system_prompt,
+      prompt,
+      model: agent.model,
+      temperature: agent.temperature,
+      maxTokens: agent.max_tokens,
+      schema: handler.schema,
+      schemaName: handler.schemaName,
+    });
+
+    await store.update('tasks', task.id, { progress: 75 });
+
+    const persisted = await handler.persist(ctx, result.data);
+    const durationMs = Date.now() - began;
+
+    await recordUsage(store, ownerId, agent, task, result.usage, durationMs);
+
+    // Touch the memories that shaped this run so stale ones are identifiable.
+    for (const memory of ctx.memory) {
+      await store.update('agent_memory', memory.id, { last_used_at: new Date().toISOString() });
+    }
+
+    let approvalId: string | null = null;
+    if (persisted.approval) {
+      approvalId = await raiseApproval(store, ownerId, agent, task, persisted.approval);
+    }
+
+    const finishedAt = new Date().toISOString();
+    const finalStatus: Task['status'] = persisted.blocked
+      ? 'waiting'
+      : approvalId
+        ? 'approval'
+        : 'completed';
+
+    await store.update('tasks', task.id, {
+      status: finalStatus,
+      output: persisted.output,
+      progress: 100,
+      completed_at: finalStatus === 'completed' ? finishedAt : null,
+      error: persisted.blocked ?? null,
+    });
+
+    const completed = agent.tasks_completed + 1;
+    await store.update('agents', agent.id, {
+      status: approvalId ? 'needs_approval' : persisted.blocked ? 'waiting' : 'idle',
+      current_task_id: null,
+      tasks_completed: completed,
+      average_execution_time: Math.round(
+        (agent.average_execution_time * agent.tasks_completed + durationMs) / completed,
+      ),
+      estimated_total_cost: Number(
+        (agent.estimated_total_cost + result.usage.estimated_cost).toFixed(6),
+      ),
+      last_run_at: finishedAt,
+      updated_at: finishedAt,
+    });
+
+    await logActivity(store, {
+      ownerId,
+      businessId: task.business_id,
+      missionId: task.mission_id,
+      taskId: task.id,
+      agentId: agent.id,
+      kind: 'agent_completed',
+      message: `${agent.name} ${persisted.summary}`,
+      metadata: { simulated, repaired: result.repaired, duration_ms: durationMs },
+    });
+
+    return {
+      taskId: task.id,
+      status: finalStatus,
+      summary: persisted.summary,
+      output: persisted.output,
+      error: persisted.blocked ?? null,
+      approvalId,
+      blocked: persisted.blocked ?? null,
+      simulated,
+    };
+  } catch (error) {
+    const message =
+      error instanceof StructuredOutputError
+        ? `${error.message}`
+        : error instanceof Error
+          ? error.message
+          : 'Unknown error';
+    return fail(store, ownerId, task, agent, message);
+  }
+}
+
+async function fail(
+  store: DataStore,
+  ownerId: string,
+  task: Task,
+  agent: Agent,
+  message: string,
+): Promise<RunAgentResult> {
+  const timestamp = new Date().toISOString();
+  await store.update('tasks', task.id, {
+    status: 'failed',
+    error: message,
+    completed_at: timestamp,
+  });
+  await store.update('agents', agent.id, {
+    status: 'error',
+    current_task_id: null,
+    tasks_failed: agent.tasks_failed + 1,
+    updated_at: timestamp,
+  });
+  await logActivity(store, {
+    ownerId,
+    businessId: task.business_id,
+    missionId: task.mission_id,
+    taskId: task.id,
+    agentId: agent.id,
+    kind: 'agent_failed',
+    message: `${agent.name} failed "${task.title}" — ${message}`,
+  });
+  await notify(store, {
+    ownerId,
+    kind: 'agent_failed',
+    title: `${agent.name} failed a task`,
+    body: message,
+    href: `/tasks/${task.id}`,
+  });
+  return {
+    taskId: task.id,
+    status: 'failed',
+    summary: message,
+    output: null,
+    error: message,
+    approvalId: null,
+    blocked: null,
+    simulated: false,
+  };
+}
+
+async function recordUsage(
+  store: DataStore,
+  ownerId: string,
+  agent: Agent,
+  task: Task,
+  usage: { input_tokens: number; output_tokens: number; estimated_cost: number },
+  durationMs: number,
+) {
+  const timestamp = new Date().toISOString();
+  await store.insert('api_usage', {
+    id: uuid(),
+    owner_id: ownerId,
+    business_id: task.business_id,
+    agent_id: agent.id,
+    task_id: task.id,
+    provider: agent.provider,
+    model: agent.model,
+    input_tokens: usage.input_tokens,
+    output_tokens: usage.output_tokens,
+    estimated_cost: usage.estimated_cost,
+    duration_ms: durationMs,
+    is_demo: false,
+    created_at: timestamp,
+  });
+
+  // Only record spend that actually happened — the mock provider costs nothing.
+  if (usage.estimated_cost > 0) {
+    await store.insert('financial_transactions', {
+      id: uuid(),
+      owner_id: ownerId,
+      business_id: task.business_id,
+      kind: 'ai_cost',
+      category: agent.model,
+      description: `${agent.name} — ${task.title}`,
+      amount: usage.estimated_cost,
+      currency: 'GBP',
+      occurred_at: timestamp,
+      reference_type: 'task',
+      reference_id: task.id,
+      is_demo: false,
+      created_at: timestamp,
+    });
+  }
+}
+
+async function raiseApproval(
+  store: DataStore,
+  ownerId: string,
+  agent: Agent,
+  task: Task,
+  request: ApprovalRequest,
+): Promise<string> {
+  const approval: Approval = {
+    id: uuid(),
+    owner_id: ownerId,
+    business_id: task.business_id,
+    mission_id: task.mission_id,
+    task_id: task.id,
+    agent_id: agent.id,
+    kind: request.kind,
+    title: request.title,
+    summary: request.summary,
+    payload: request.payload,
+    status: 'pending',
+    feedback: null,
+    is_demo: false,
+    created_at: new Date().toISOString(),
+    resolved_at: null,
+  };
+  await store.insert('approvals', approval);
+  await logActivity(store, {
+    ownerId,
+    businessId: task.business_id,
+    missionId: task.mission_id,
+    taskId: task.id,
+    agentId: agent.id,
+    kind: 'approval_requested',
+    message: `${agent.name} requested approval — ${request.title}`,
+  });
+  await notify(store, {
+    ownerId,
+    kind: 'approval_required',
+    title: request.title,
+    body: request.summary,
+    href: '/approvals',
+  });
+  return approval.id;
+}

@@ -1,0 +1,90 @@
+import type { DataStore } from '@/lib/db/tables';
+import type {
+  Agent,
+  AgentMemory,
+  Business,
+  Mission,
+  Task,
+} from '@/types/domain';
+
+export interface RunContext {
+  store: DataStore;
+  ownerId: string;
+  agent: Agent;
+  task: Task;
+  mission: Mission | null;
+  business: Business | null;
+  memory: AgentMemory[];
+  /** Outputs of completed tasks in the same mission, keyed by workflow step. */
+  previousOutputs: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Loads the memories that should be in an agent's prompt: everything important,
+ * most recent first, capped so the prompt stays affordable.
+ */
+export async function loadRelevantMemory(
+  store: DataStore,
+  agent: Agent,
+  limit = 12,
+): Promise<AgentMemory[]> {
+  const rows = await store.list('agent_memory', {
+    where: { agent_id: agent.id },
+  });
+  return rows
+    .sort((a, b) => {
+      if (b.importance !== a.importance) return b.importance - a.importance;
+      return b.created_at.localeCompare(a.created_at);
+    })
+    .slice(0, limit);
+}
+
+export async function loadPreviousOutputs(
+  store: DataStore,
+  missionId: string | null,
+  excludeTaskId: string,
+): Promise<Record<string, Record<string, unknown>>> {
+  if (!missionId) return {};
+  const tasks = await store.list('tasks', { where: { mission_id: missionId } });
+  const outputs: Record<string, Record<string, unknown>> = {};
+  for (const task of tasks) {
+    if (task.id === excludeTaskId) continue;
+    if (!task.output) continue;
+    const key = task.step_key ?? task.id;
+    outputs[key] = task.output;
+  }
+  return outputs;
+}
+
+/** Renders memory as prompt text. Empty string when the agent has none. */
+export function renderMemory(memory: AgentMemory[]): string {
+  if (memory.length === 0) return '';
+  const lines = memory.map((m) => `- (${m.type}, importance ${m.importance}) ${m.content}`);
+  return [
+    'Things you have learned about this business. Treat these as established unless the task contradicts them:',
+    ...lines,
+  ].join('\n');
+}
+
+export function renderBusiness(business: Business | null): string {
+  if (!business) return 'This task is not scoped to a single business.';
+  return [
+    `Business: ${business.name} (${business.kind})`,
+    business.description,
+    `Currency: ${business.currency}`,
+  ].join('\n');
+}
+
+export function renderPreviousOutputs(
+  outputs: Record<string, Record<string, unknown>>,
+): string {
+  const keys = Object.keys(outputs);
+  if (keys.length === 0) return '';
+  const parts = keys.map((key) => {
+    const json = JSON.stringify(outputs[key], null, 2);
+    // Upstream outputs can be large; a hard cap keeps prompts predictable.
+    const body = json.length > 12_000 ? `${json.slice(0, 12_000)}\n… (truncated)` : json;
+    return `### Output of step "${key}"\n${body}`;
+  });
+  return ['Work completed earlier in this mission:', ...parts].join('\n\n');
+}

@@ -1,0 +1,199 @@
+@import 'tailwindcss';
+
+/*
+ * Command Centre visual system.
+ *
+ * Dark first, near-black panels, one accent per state. The spectacle belongs to
+ * the galaxy — the UI around it stays quiet.
+ */
+@theme {
+  --color-void: #04060d;
+  --color-deep: #070b16;
+  --color-panel: #0b1020;
+  --color-panel-raised: #101627;
+  --color-edge: #1b2338;
+  --color-edge-soft: #141a2b;
+
+  --color-ink: #e8ebf5;
+  --color-ink-muted: #949db5;
+  --color-ink-faint: #616b85;
+
+  --color-status-idle: #64748b;
+  --color-status-working: #38bdf8;
+  --color-status-ok: #34d399;
+  --color-status-waiting: #fbbf24;
+  --color-status-approval: #f59e0b;
+  --color-status-error: #f87171;
+  --color-status-offline: #3f4759;
+
+  --color-accent: #f5a524;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-edge);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-void);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+
+  /* The whole product is a fixed command deck, not a scrolling document. */
+  html,
+  body {
+    height: 100%;
+  }
+
+  ::selection {
+    background: rgba(245, 165, 36, 0.28);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.8);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-edge);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2a3450;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .panel {
+    background: color-mix(in oklab, var(--color-panel) 82%, transparent);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--color-edge);
+    border-radius: 14px;
+  }
+
+  .panel-flush {
+    background: color-mix(in oklab, var(--color-panel) 74%, transparent);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--color-edge);
+  }
+
+  .hairline {
+    border-color: var(--color-edge-soft);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .starfield {
+    background-color: var(--color-void);
+    background-image:
+      radial-gradient(
+        ellipse 80% 60% at 50% 45%,
+        rgba(56, 74, 140, 0.16),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 50% 40% at 82% 22%,
+        rgba(120, 60, 160, 0.12),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 45% 35% at 14% 78%,
+        rgba(30, 110, 130, 0.1),
+        transparent 70%
+      );
+  }
+
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge) transparent;
+  }
+}
+
+/* Motion communicates state; it should never be the only signal, and it stops
+   entirely when the operator has asked for reduced motion. */
+@keyframes cc-pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes cc-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes cc-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-pulse-ring {
+  animation: cc-pulse-ring 2.4s ease-out infinite;
+}
+
+.animate-breathe {
+  animation: cc-breathe 2.6s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: cc-slide-up 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

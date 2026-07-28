@@ -1,0 +1,799 @@
+/**
+ * Core domain types for Command Centre.
+ *
+ * These mirror the database schema in supabase/migrations. Anything persisted
+ * has a UUID `id`, and ISO-8601 timestamp strings.
+ */
+
+export type UUID = string;
+export type Timestamp = string;
+
+/* ------------------------------------------------------------------ */
+/* Businesses                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Kind drives which workspace module a business renders. */
+export type BusinessKind = 'youtube' | 'etsy' | 'apps' | 'generic';
+
+export interface Business {
+  id: UUID;
+  owner_id: UUID;
+  name: string;
+  slug: string;
+  kind: BusinessKind;
+  description: string;
+  /** Accent colour used for this business' solar system. */
+  colour: string;
+  currency: string;
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agents                                                              */
+/* ------------------------------------------------------------------ */
+
+export const AGENT_STATUSES = [
+  'idle',
+  'working',
+  'waiting',
+  'needs_approval',
+  'error',
+  'offline',
+  'disabled',
+] as const;
+export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
+/**
+ * Authority levels bound what an agent may do without a human in the loop.
+ * Anything above the agent's level must raise an approval instead of acting.
+ */
+export const AUTHORITY_LEVELS = [0, 1, 2, 3, 4] as const;
+export type AuthorityLevel = (typeof AUTHORITY_LEVELS)[number];
+
+export type AIProviderId = 'anthropic' | 'openai' | 'google' | 'mock';
+
+/** Purely visual configuration for an agent's planet. */
+export interface PlanetVisual {
+  /** Base sphere colour. */
+  colour: string;
+  /** Secondary colour used for atmosphere / rim light. */
+  atmosphere: string;
+  /** Sphere radius in world units (0.35 – 1.1 is the sensible range). */
+  radius: number;
+  /** Orbit radius from the command core. */
+  orbit: number;
+  /** Starting angle on the orbit, radians. */
+  angle: number;
+  /** Radians per second. Small values only — this is ambient motion. */
+  speed: number;
+  /** Vertical offset so orbits are not perfectly coplanar. */
+  inclination: number;
+  /** Renders a Saturn-style ring. */
+  ring?: boolean;
+  /** Surface noise intensity, 0–1. */
+  roughness: number;
+}
+
+export interface Agent {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  name: string;
+  slug: string;
+  role: string;
+  description: string;
+  system_prompt: string;
+  provider: AIProviderId;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  status: AgentStatus;
+  authority_level: AuthorityLevel;
+  current_task_id: UUID | null;
+  /** Capability slugs the workflow engine matches tasks against. */
+  capabilities: string[];
+  visual: PlanetVisual;
+  is_demo: boolean;
+  tasks_completed: number;
+  tasks_failed: number;
+  /** Milliseconds. */
+  average_execution_time: number;
+  estimated_total_cost: number;
+  last_run_at: Timestamp | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type AgentMemoryType =
+  | 'insight'
+  | 'preference'
+  | 'fact'
+  | 'constraint'
+  | 'performance';
+
+export interface AgentMemory {
+  id: UUID;
+  agent_id: UUID;
+  business_id: UUID | null;
+  type: AgentMemoryType;
+  content: string;
+  /** 1 (trivia) – 5 (always include). */
+  importance: number;
+  source: string;
+  created_at: Timestamp;
+  last_used_at: Timestamp | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Missions, tasks, workflows                                          */
+/* ------------------------------------------------------------------ */
+
+export const MISSION_STATUSES = [
+  'planning',
+  'running',
+  'waiting',
+  'needs_approval',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+export type MissionStatus = (typeof MISSION_STATUSES)[number];
+
+export interface Mission {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  /** Human-facing sequential number, e.g. 8 renders as "MISSION #008". */
+  number: number;
+  title: string;
+  objective: string;
+  status: MissionStatus;
+  workflow_definition_id: UUID | null;
+  /** Free-form payload captured when the mission was created. */
+  context: Record<string, unknown>;
+  progress: number;
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  completed_at: Timestamp | null;
+}
+
+export const TASK_STATUSES = [
+  'queued',
+  'running',
+  'waiting',
+  'approval',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const TASK_PRIORITIES = ['low', 'normal', 'high', 'critical'] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export interface Task {
+  id: UUID;
+  owner_id: UUID;
+  mission_id: UUID | null;
+  business_id: UUID | null;
+  agent_id: UUID | null;
+  /** Which workflow step produced this task, if any. */
+  step_key: string | null;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  /** 0–100, updated by long-running agents. */
+  progress: number;
+  is_demo: boolean;
+  created_at: Timestamp;
+  started_at: Timestamp | null;
+  completed_at: Timestamp | null;
+  due_at: Timestamp | null;
+}
+
+export interface TaskDependency {
+  id: UUID;
+  task_id: UUID;
+  depends_on_task_id: UUID;
+}
+
+/** A step in a reusable workflow definition. */
+export interface WorkflowStep {
+  /** Stable key, unique within the definition. */
+  key: string;
+  title: string;
+  /** Capability required — resolved to a concrete agent at run time. */
+  capability: string;
+  /** Keys of steps that must complete first. */
+  depends_on: string[];
+  /** Raise an approval when this step completes, before continuing. */
+  requires_approval: boolean;
+  /** Approval label shown to the operator. */
+  approval_label?: string;
+}
+
+export interface WorkflowDefinition {
+  id: UUID;
+  owner_id: UUID | null;
+  business_id: UUID | null;
+  key: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type WorkflowRunStatus = MissionStatus;
+
+export interface WorkflowRun {
+  id: UUID;
+  mission_id: UUID;
+  workflow_definition_id: UUID;
+  status: WorkflowRunStatus;
+  /** step key -> task id */
+  step_tasks: Record<string, UUID>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/* ------------------------------------------------------------------ */
+/* Approvals                                                           */
+/* ------------------------------------------------------------------ */
+
+export type ApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'changes_requested';
+
+export type ApprovalKind =
+  | 'idea'
+  | 'research'
+  | 'script'
+  | 'thumbnail'
+  | 'video'
+  | 'product'
+  | 'listing'
+  | 'spend'
+  | 'publish'
+  | 'generic';
+
+export interface Approval {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  mission_id: UUID | null;
+  task_id: UUID | null;
+  agent_id: UUID | null;
+  kind: ApprovalKind;
+  title: string;
+  summary: string;
+  /** The thing being approved, rendered by kind-specific viewers. */
+  payload: Record<string, unknown>;
+  status: ApprovalStatus;
+  feedback: string | null;
+  is_demo: boolean;
+  created_at: Timestamp;
+  resolved_at: Timestamp | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity, notifications, chat                                       */
+/* ------------------------------------------------------------------ */
+
+export type ActivityKind =
+  | 'agent_started'
+  | 'agent_completed'
+  | 'agent_failed'
+  | 'handoff'
+  | 'mission_created'
+  | 'mission_completed'
+  | 'approval_requested'
+  | 'approval_resolved'
+  | 'system';
+
+export interface ActivityLog {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  mission_id: UUID | null;
+  task_id: UUID | null;
+  agent_id: UUID | null;
+  /** Set on `handoff` events — drives the galaxy connection beams. */
+  target_agent_id: UUID | null;
+  kind: ActivityKind;
+  message: string;
+  metadata: Record<string, unknown>;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export type NotificationKind =
+  | 'approval_required'
+  | 'mission_completed'
+  | 'agent_failed'
+  | 'integration_disconnected'
+  | 'budget_warning'
+  | 'task_completed';
+
+export interface AppNotification {
+  id: UUID;
+  owner_id: UUID;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  href: string | null;
+  read: boolean;
+  created_at: Timestamp;
+}
+
+export interface CommandMessage {
+  id: UUID;
+  owner_id: UUID;
+  role: 'user' | 'manager' | 'system';
+  content: string;
+  mission_id: UUID | null;
+  /** Structured references so chat is never disconnected from real work. */
+  refs: { tasks?: UUID[]; agents?: UUID[]; approvals?: UUID[] };
+  created_at: Timestamp;
+}
+
+/* ------------------------------------------------------------------ */
+/* YouTube module                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface YoutubeChannel {
+  id: UUID;
+  business_id: UUID;
+  name: string;
+  handle: string;
+  niche: string;
+  target_audience: string;
+  external_id: string | null;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export type IdeaStatus = 'proposed' | 'approved' | 'rejected' | 'saved';
+
+export interface OpportunityBreakdown {
+  demand: number;
+  competition: number;
+  monetisation: number;
+  longevity: number;
+  click_potential: number;
+}
+
+export interface YoutubeIdea {
+  id: UUID;
+  business_id: UUID;
+  channel_id: UUID | null;
+  mission_id: UUID | null;
+  task_id: UUID | null;
+  title: string;
+  topic: string;
+  niche: string;
+  summary: string;
+  target_audience: string;
+  why_it_might_work: string;
+  competition: string;
+  demand: string;
+  monetisation: string;
+  longevity: string;
+  click_potential: string;
+  difficulty: string;
+  confidence: number;
+  sources: string[];
+  notes: string;
+  score: number;
+  breakdown: OpportunityBreakdown;
+  status: IdeaStatus;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export type ClaimConfidence = 'verified' | 'interpretation' | 'needs_verification';
+
+export interface ResearchFact {
+  claim: string;
+  detail: string;
+  confidence: ClaimConfidence;
+  source: string | null;
+}
+
+export interface YoutubeResearch {
+  id: UUID;
+  business_id: UUID;
+  idea_id: UUID;
+  task_id: UUID | null;
+  overview: string;
+  facts: ResearchFact[];
+  statistics: ResearchFact[];
+  timeline: { when: string; what: string }[];
+  viewer_questions: string[];
+  competitor_coverage: string[];
+  content_gaps: string[];
+  hooks: string[];
+  interesting_details: string[];
+  risks: string[];
+  uncertain_claims: string[];
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface ScriptSection {
+  kind:
+    | 'hook'
+    | 'introduction'
+    | 'main'
+    | 'transition'
+    | 'pattern_interrupt'
+    | 'payoff'
+    | 'ending'
+    | 'cta';
+  heading: string;
+  body: string;
+}
+
+export type ScriptStatus =
+  | 'draft'
+  | 'fact_checking'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'rejected';
+
+export interface YoutubeScript {
+  id: UUID;
+  business_id: UUID;
+  idea_id: UUID;
+  research_id: UUID | null;
+  task_id: UUID | null;
+  title: string;
+  sections: ScriptSection[];
+  word_count: number;
+  estimated_duration_seconds: number;
+  tone: string;
+  audience: string;
+  goal: string;
+  status: ScriptStatus;
+  version: number;
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface YoutubeScriptVersion {
+  id: UUID;
+  script_id: UUID;
+  version: number;
+  sections: ScriptSection[];
+  note: string;
+  created_at: Timestamp;
+}
+
+export type FactCheckVerdict =
+  | 'verified'
+  | 'needs_review'
+  | 'potentially_incorrect'
+  | 'unsourced';
+
+export interface FactCheckFinding {
+  claim: string;
+  verdict: FactCheckVerdict;
+  reasoning: string;
+  suggested_correction: string | null;
+}
+
+export interface YoutubeFactCheck {
+  id: UUID;
+  business_id: UUID;
+  script_id: UUID;
+  task_id: UUID | null;
+  findings: FactCheckFinding[];
+  /** True when nothing is `potentially_incorrect`. Blocks progression if false. */
+  passed: boolean;
+  summary: string;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface ThumbnailConcept {
+  id: UUID;
+  business_id: UUID;
+  video_id: UUID | null;
+  script_id: UUID | null;
+  visual_description: string;
+  subject: string;
+  background: string;
+  composition: string;
+  text: string;
+  emotion: string;
+  colour_direction: string;
+  reasoning: string;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export const VIDEO_STATUSES = [
+  'idea',
+  'research',
+  'script',
+  'fact_check',
+  'thumbnail',
+  'production',
+  'awaiting_approval',
+  'ready',
+  'scheduled',
+  'published',
+  'failed',
+] as const;
+export type VideoStatus = (typeof VIDEO_STATUSES)[number];
+
+export interface YoutubeVideo {
+  id: UUID;
+  business_id: UUID;
+  channel_id: UUID | null;
+  idea_id: UUID | null;
+  script_id: UUID | null;
+  mission_id: UUID | null;
+  number: number;
+  title: string;
+  status: VideoStatus;
+  alternative_titles: string[];
+  selected_thumbnail_id: UUID | null;
+  publish_at: Timestamp | null;
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type AssetStatus = 'pending' | 'requested' | 'ready' | 'failed';
+
+export interface YoutubeScene {
+  id: UUID;
+  video_id: UUID;
+  scene_number: number;
+  duration_seconds: number;
+  narration: string;
+  visual_direction: string;
+  b_roll_query: string;
+  image_prompt: string;
+  video_prompt: string;
+  on_screen_text: string;
+  transition: string;
+  asset_status: AssetStatus;
+  is_demo: boolean;
+}
+
+export interface YoutubeAnalytics {
+  id: UUID;
+  business_id: UUID;
+  video_id: UUID | null;
+  channel_id: UUID | null;
+  date: string;
+  views: number;
+  impressions: number;
+  ctr: number;
+  watch_time_minutes: number;
+  average_view_duration_seconds: number;
+  likes: number;
+  comments: number;
+  subscribers_gained: number;
+  revenue: number;
+  is_demo: boolean;
+}
+
+/** AI-derived conclusions, stored apart from raw analytics rows. */
+export interface ChannelIntelligence {
+  id: UUID;
+  business_id: UUID;
+  channel_id: UUID | null;
+  best_topics: string[];
+  best_title_structures: string[];
+  thumbnail_patterns: string[];
+  ideal_duration: string;
+  retention_trends: string[];
+  best_publishing_periods: string[];
+  generated_at: Timestamp;
+  is_demo: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Etsy module                                                         */
+/* ------------------------------------------------------------------ */
+
+export interface EtsyStore {
+  id: UUID;
+  business_id: UUID;
+  name: string;
+  url: string;
+  niche: string;
+  external_id: string | null;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface EtsyOpportunity {
+  id: UUID;
+  business_id: UUID;
+  store_id: UUID | null;
+  mission_id: UUID | null;
+  task_id: UUID | null;
+  product: string;
+  target_customer: string;
+  problem: string;
+  demand: string;
+  competition: string;
+  pricing_range: string;
+  seasonality: string;
+  production_difficulty: string;
+  seo_opportunity: string;
+  market_gap: string;
+  profit_potential: string;
+  score: number;
+  breakdown: OpportunityBreakdown;
+  status: IdeaStatus;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export const ETSY_PRODUCT_STATUSES = [
+  'idea',
+  'research',
+  'creating',
+  'listing',
+  'awaiting_approval',
+  'ready',
+  'published',
+] as const;
+export type EtsyProductStatus = (typeof ETSY_PRODUCT_STATUSES)[number];
+
+export interface EtsyProduct {
+  id: UUID;
+  business_id: UUID;
+  store_id: UUID | null;
+  opportunity_id: UUID | null;
+  name: string;
+  description: string;
+  target_buyer: string;
+  category: string;
+  assets_required: string[];
+  production_checklist: { item: string; done: boolean }[];
+  price: number;
+  estimated_cost: number;
+  status: EtsyProductStatus;
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface EtsyListing {
+  id: UUID;
+  business_id: UUID;
+  product_id: UUID;
+  task_id: UUID | null;
+  title: string;
+  description: string;
+  tags: string[];
+  keywords: string[];
+  category_suggestions: string[];
+  price_suggestion: number;
+  benefits: string[];
+  faq: { question: string; answer: string }[];
+  image_brief: string;
+  status: 'draft' | 'awaiting_approval' | 'approved' | 'published';
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface EtsyKeyword {
+  id: UUID;
+  business_id: UUID;
+  keyword: string;
+  search_volume: string;
+  competition: string;
+  relevance: number;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface EtsyAnalytics {
+  id: UUID;
+  business_id: UUID;
+  store_id: UUID | null;
+  date: string;
+  visits: number;
+  orders: number;
+  revenue: number;
+  conversion_rate: number;
+  is_demo: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Finance                                                             */
+/* ------------------------------------------------------------------ */
+
+export type TransactionKind = 'revenue' | 'expense' | 'ai_cost' | 'subscription';
+
+export interface FinancialTransaction {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  kind: TransactionKind;
+  category: string;
+  description: string;
+  /** Always stored in the business' currency, default GBP. */
+  amount: number;
+  currency: string;
+  occurred_at: Timestamp;
+  /** Links spend back to the thing that caused it, e.g. a video. */
+  reference_type: string | null;
+  reference_id: UUID | null;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export interface ApiUsage {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  agent_id: UUID | null;
+  task_id: UUID | null;
+  provider: AIProviderId;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost: number;
+  duration_ms: number;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+/* ------------------------------------------------------------------ */
+/* Integrations                                                        */
+/* ------------------------------------------------------------------ */
+
+export type IntegrationKind =
+  | 'ai'
+  | 'youtube'
+  | 'etsy'
+  | 'voice'
+  | 'image'
+  | 'video';
+
+export interface IntegrationConnection {
+  id: UUID;
+  owner_id: UUID;
+  kind: IntegrationKind;
+  provider: string;
+  label: string;
+  /**
+   * Honest connection state, derived from server-side configuration only.
+   * Never set to `connected` unless credentials actually exist.
+   */
+  connected: boolean;
+  /** Env var names required to connect. Shown to the operator as instructions. */
+  required_env: string[];
+  notes: string;
+  created_at: Timestamp;
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface Profile {
+  id: UUID;
+  email: string;
+  display_name: string;
+  currency: string;
+  created_at: Timestamp;
+}
