@@ -144,6 +144,9 @@ export async function createMission(
       status: (step.depends_on?.length ?? 0) === 0 ? 'queued' : 'waiting',
       priority: step.priority ?? 'normal',
       input: {
+        // Carry the step's capability onto the task: an agent may provide
+        // several, and without this the engine falls back to its first one.
+        capability: step.capability,
         ...(step.input ?? {}),
         ...(index === 0 ? (input.seedInput ?? {}) : {}),
         ...(step.requires_approval

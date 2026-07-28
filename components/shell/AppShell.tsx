@@ -14,6 +14,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isUniverse = pathname === '/';
 
+  // Sign-in has no workforce to show, so it gets no chrome and no polling.
+  if (pathname.startsWith('/login')) return <>{children}</>;
+
   return (
     <LiveStateProvider>
       <div className="starfield flex h-dvh flex-col overflow-hidden">

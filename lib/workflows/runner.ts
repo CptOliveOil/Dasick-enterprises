@@ -41,7 +41,20 @@ export async function runMission(
   for (let step = 0; step < maxSteps; step += 1) {
     await releaseUnblockedTasks(store, missionId);
     const runnable = await getRunnableTasks(store, missionId);
-    if (runnable.length === 0) break;
+    if (runnable.length === 0) {
+      // Distinguish "finished" from "stuck": a step with no agent can never
+      // run, and silently reporting success would hide that.
+      if (step === 0) {
+        const tasks = await store.list('tasks', { where: { mission_id: missionId } });
+        const unassigned = tasks.filter((t) => !t.agent_id && t.status !== 'cancelled');
+        if (unassigned.length > 0) {
+          haltedBecause =
+            unassigned[0]!.error ??
+            `No available agent can run "${unassigned[0]!.title}".`;
+        }
+      }
+      break;
+    }
 
     const task = runnable[0]!;
     const previousAgentId = results.at(-1)

@@ -158,7 +158,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a YouTube opportunity researcher for faceless documentary channels. You find video ideas with genuine search and browse demand, assess competition honestly, and never overstate certainty. You do not invent statistics or sources. Where you are inferring rather than citing, you say so.',
     business: 'youtube',
-    capabilities: ['youtube.research.ideas'],
+    capabilities: ['youtube.research.ideas', 'youtube.research.package'],
     authority_level: 1,
     status: 'working',
     visual: {

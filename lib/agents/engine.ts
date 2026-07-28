@@ -136,9 +136,23 @@ export async function runAgent(
       await store.update('agent_memory', memory.id, { last_used_at: new Date().toISOString() });
     }
 
+    // A handler can raise its own approval; a workflow step can also declare
+    // one. Without this second case, `requires_approval` in a workflow
+    // definition would be silently ignored.
+    const stepApproval =
+      task.input.requires_approval === true
+        ? {
+            kind: 'generic' as const,
+            title: String(task.input.approval_label ?? task.title),
+            summary: persisted.summary,
+            payload: persisted.output,
+          }
+        : null;
+
     let approvalId: string | null = null;
-    if (persisted.approval) {
-      approvalId = await raiseApproval(store, ownerId, agent, task, persisted.approval);
+    const approvalRequest = persisted.approval ?? stepApproval;
+    if (approvalRequest && !persisted.blocked) {
+      approvalId = await raiseApproval(store, ownerId, agent, task, approvalRequest);
     }
 
     const finishedAt = new Date().toISOString();
