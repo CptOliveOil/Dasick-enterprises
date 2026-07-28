@@ -37,15 +37,16 @@ export interface GalaxySceneProps {
   onPositions: (positions: Map<string, THREE.Vector3>) => void;
 }
 
-const DEFAULT_POSITION = new THREE.Vector3(0, 12.5, 21);
+const DEFAULT_POSITION = new THREE.Vector3(0, 13.5, 25);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
+const UP = new THREE.Vector3(0, 1, 0);
 
 export function GalaxyScene(props: GalaxySceneProps) {
   return (
     <Canvas
       dpr={props.quality.dpr}
       gl={{ antialias: props.quality.tier !== 'low', alpha: true, powerPreference: 'high-performance' }}
-      camera={{ position: DEFAULT_POSITION.toArray(), fov: 42, near: 0.1, far: 220 }}
+      camera={{ position: DEFAULT_POSITION.toArray(), fov: 40, near: 0.1, far: 240 }}
       onPointerMissed={() => props.onSelect(null)}
     >
       <SceneContents {...props} />
@@ -125,8 +126,17 @@ function SceneContents({
       const agent = agents.find((a) => a.id === view.agentId);
       if (!position || !agent) return;
       desiredTarget.current.copy(position);
-      const offset = position.clone().normalize().multiplyScalar(agent.visual.radius * 6 + 3);
-      desiredPosition.current.copy(position).add(offset).add(new THREE.Vector3(0, 2.4, 0));
+      const distance = agent.visual.radius * 6 + 5;
+      const offset = position
+        .clone()
+        .setY(0)
+        .normalize()
+        .applyAxisAngle(UP, Math.PI * 0.34)
+        .multiplyScalar(distance);
+      desiredPosition.current
+        .copy(position)
+        .add(offset)
+        .add(new THREE.Vector3(0, distance * 0.5, 0));
       transitioning.current = true;
     }
   }, [view, agents, positions]);
@@ -147,8 +157,9 @@ function SceneContents({
 
   return (
     <>
-      <ambientLight intensity={0.32} />
-      <hemisphereLight intensity={0.18} color="#8fb8ff" groundColor="#0a0f1e" />
+      {/* Deliberately dim ambient: the command core should be doing the lighting. */}
+      <ambientLight intensity={0.1} />
+      <hemisphereLight intensity={0.09} color="#8fb8ff" groundColor="#050a16" />
 
       <Starfield count={quality.starCount} animate={animate} />
       {quality.orbitRings && <OrbitRings radii={orbitRadii} />}

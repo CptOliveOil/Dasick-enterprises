@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import { Maximize2, RotateCcw, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useWorkforce } from '@/lib/store/workforce';
+import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { agentStatusStyle } from '@/lib/agents/status';
 import { Button } from '@/components/ui';
 import { HoverCard } from './HoverCard';
@@ -61,9 +61,11 @@ export function Galaxy({ className }: { className?: string }) {
     setSupported(webglAvailable());
   }, []);
 
-  const agents = snapshot?.agents ?? [];
-  const tasks = snapshot?.tasks ?? [];
-  const connections = snapshot?.connections ?? [];
+  // EMPTY rather than a fresh literal: these feed props and memo dependencies,
+  // and a new array identity every render would re-run the whole scene.
+  const agents = snapshot?.agents ?? EMPTY;
+  const tasks = snapshot?.tasks ?? EMPTY;
+  const connections = snapshot?.connections ?? EMPTY;
 
   const selectedAgentId = selection?.type === 'agent' ? selection.id : null;
 
@@ -147,7 +149,7 @@ export function Galaxy({ className }: { className?: string }) {
         </div>
 
         {/* Small screens: a simplified, tappable system rather than a squeezed one. */}
-        <div className="absolute inset-0 overflow-y-auto px-4 py-6 md:hidden">
+        <div className="absolute inset-0 flex flex-col justify-center overflow-y-auto px-4 py-6 md:hidden">
           <MobileGalaxy
             agents={agents}
             tasks={tasks}
@@ -188,7 +190,7 @@ export function Galaxy({ className }: { className?: string }) {
 }
 
 function GalaxyUnavailable() {
-  const agents = useWorkforce((s) => s.snapshot?.agents ?? []);
+  const agents = useWorkforce((s) => s.snapshot?.agents) ?? EMPTY;
   const select = useWorkforce((s) => s.select);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">

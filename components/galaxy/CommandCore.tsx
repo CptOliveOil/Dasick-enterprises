@@ -35,27 +35,42 @@ export function CommandCore({
 
   return (
     <group>
-      <pointLight intensity={140} distance={70} decay={2} color="#ffd08a" />
+      {/*
+        decay 1 rather than the physical 2: the outer orbits sit four times
+        further out than the inner ones, and a square falloff leaves them black.
+      */}
+      <pointLight intensity={26} distance={95} decay={1} color="#ffd8a0" />
       <mesh ref={core}>
-        <sphereGeometry args={[1.15, ...quality.sphereSegments]} />
-        <meshBasicMaterial color="#ffcf7a" />
+        <sphereGeometry args={[1.05, ...quality.sphereSegments]} />
+        <meshBasicMaterial color="#fff4d6" />
       </mesh>
-      <mesh scale={1.22}>
-        <sphereGeometry args={[1.15, ...quality.sphereSegments]} />
-        <meshBasicMaterial
-          color="#f5a524"
-          transparent
-          opacity={0.28}
-          side={THREE.BackSide}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
+      {[1.18, 1.42, 1.75].map((scale, i) => (
+        <mesh key={scale} scale={scale}>
+          <sphereGeometry args={[1.05, ...quality.sphereSegments]} />
+          <meshBasicMaterial
+            color={i === 0 ? '#ffcf7a' : i === 1 ? '#f5a524' : '#e2761b'}
+            transparent
+            opacity={0.3 - i * 0.08}
+            side={THREE.BackSide}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
       <sprite ref={corona} scale={6.4}>
         <spriteMaterial
           map={halo}
           transparent
-          opacity={active ? 0.85 : 0.62}
+          opacity={active ? 0.95 : 0.75}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+      <sprite scale={13}>
+        <spriteMaterial
+          map={halo}
+          transparent
+          opacity={0.24}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />

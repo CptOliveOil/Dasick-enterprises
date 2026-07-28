@@ -49,7 +49,10 @@ export function surfaceTexture(colour: string, roughness: number): THREE.Texture
   ctx.fillStyle = colour;
   ctx.fillRect(0, 0, width, height);
 
+  // Push saturation up front: the blob shading below desaturates as it layers,
+  // and a pastel planet loses the identity its colour is carrying.
   const base = new THREE.Color(colour);
+  base.offsetHSL(0, 0.18, -0.04);
   const seed = hashString(key);
   const random = mulberry32(seed);
 
@@ -61,13 +64,13 @@ export function surfaceTexture(colour: string, roughness: number): THREE.Texture
       const x = random() * width;
       const y = random() * height;
       const shade = base.clone();
-      const delta = (random() - 0.5) * 0.45 * (0.4 + roughness);
-      shade.offsetHSL(delta * 0.05, delta * 0.2, delta * 0.35);
+      const delta = (random() - 0.5) * 0.85 * (0.5 + roughness);
+      shade.offsetHSL(delta * 0.04, delta * 0.12, delta * 0.34);
       const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
       gradient.addColorStop(0, `#${shade.getHexString()}`);
       gradient.addColorStop(1, hexToRgba(`#${shade.getHexString()}`, 0));
       ctx.fillStyle = gradient;
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.5;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();

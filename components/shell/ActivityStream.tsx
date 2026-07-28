@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useWorkforce } from '@/lib/store/workforce';
+import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { formatClock, formatRelativeTime } from '@/lib/utils';
 import { DemoNotice } from '@/components/ui';
 import type { ActivityKind } from '@/types/domain';
@@ -20,8 +20,8 @@ const KIND_COLOUR: Record<ActivityKind, string> = {
 
 /** Collapsible live feed. Reads straight from activity_logs — nothing synthetic. */
 export function ActivityStream() {
-  const activity = useWorkforce((s) => s.snapshot?.activity ?? []);
-  const agents = useWorkforce((s) => s.snapshot?.agents ?? []);
+  const activity = useWorkforce((s) => s.snapshot?.activity) ?? EMPTY;
+  const agents = useWorkforce((s) => s.snapshot?.agents) ?? EMPTY;
   const open = useWorkforce((s) => s.activityOpen);
   const toggle = useWorkforce((s) => s.toggleActivity);
   const select = useWorkforce((s) => s.select);
@@ -31,7 +31,7 @@ export function ActivityStream() {
   return (
     <section
       aria-label="Live activity"
-      className="panel-flush shrink-0 rounded-none border-x-0 border-b-0"
+      className="panel-flush shrink-0 rounded-none border-x-0 border-b-0 pb-14 md:pb-0"
     >
       <button
         onClick={toggle}

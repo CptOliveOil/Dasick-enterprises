@@ -1,6 +1,6 @@
 'use client';
 
-import { useWorkforce } from '@/lib/store/workforce';
+import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { MISSION_STATUS_STYLES } from '@/lib/agents/status';
 import { missionLabel } from '@/lib/utils';
 import { ProgressBar } from '@/components/ui';
@@ -10,7 +10,7 @@ import { ProgressBar } from '@/components/ui';
  * working on it and swaps the contextual panel to the mission inspector.
  */
 export function MissionControl({ className }: { className?: string }) {
-  const missions = useWorkforce((s) => s.snapshot?.missions ?? []);
+  const missions = useWorkforce((s) => s.snapshot?.missions) ?? EMPTY;
   const selection = useWorkforce((s) => s.selection);
   const select = useWorkforce((s) => s.select);
 

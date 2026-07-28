@@ -289,6 +289,86 @@ const youtubeScript: CapabilityHandler<z.infer<typeof youtubeScriptResponseSchem
 };
 
 /* ------------------------------------------------------------------ */
+/* YouTube: script revision                                            */
+/* ------------------------------------------------------------------ */
+
+const youtubeScriptRevise: CapabilityHandler<z.infer<typeof youtubeScriptResponseSchema>> = {
+  capability: 'youtube.script.revise',
+  label: 'Revise script',
+  schemaName: 'YoutubeScript',
+  schema: youtubeScriptResponseSchema,
+  async buildPrompt(ctx) {
+    const scriptId = resolveScriptId(ctx);
+    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
+    if (!script) throw new Error('No script was supplied to revise.');
+    const instruction = String(ctx.task.input.instruction ?? 'Improve the script.');
+    const sectionKey = ctx.task.input.section_heading;
+
+    return [
+      baseContext(ctx),
+      '',
+      'Revise the script below.',
+      typeof sectionKey === 'string'
+        ? `Focus on the section titled "${sectionKey}". Return the whole script, with every other section unchanged.`
+        : 'Return the whole script.',
+      `Instruction: ${instruction}`,
+      '',
+      '```json',
+      JSON.stringify(
+        { title: script.title, tone: script.tone, sections: script.sections },
+        null,
+        2,
+      ).slice(0, 20_000),
+      '```',
+      '',
+      'Rules:',
+      '- Keep the same factual content unless the instruction is to correct something.',
+      '- Do not drop sections. The section `kind` values must stay valid.',
+    ].join('\n');
+  },
+  async persist(ctx, data) {
+    const scriptId = resolveScriptId(ctx);
+    if (!scriptId) throw new Error('No script id on the revision task.');
+    const script = await ctx.store.get('youtube_scripts', scriptId);
+    if (!script) throw new Error('The script being revised no longer exists.');
+
+    const sections = data.sections as ScriptSection[];
+    const wordCount = sections.reduce(
+      (total, section) => total + section.body.trim().split(/\s+/).filter(Boolean).length,
+      0,
+    );
+    const version = script.version + 1;
+    const timestamp = now();
+
+    await ctx.store.update('youtube_scripts', scriptId, {
+      title: data.title,
+      sections,
+      word_count: wordCount,
+      estimated_duration_seconds: Math.round((wordCount / 155) * 60),
+      tone: data.tone,
+      version,
+      // A revision invalidates the previous fact check.
+      status: 'draft',
+      updated_at: timestamp,
+    });
+
+    await ctx.store.insert('youtube_script_versions', {
+      id: uuid(),
+      script_id: scriptId,
+      version,
+      sections,
+      note: String(ctx.task.input.instruction ?? 'Revision'),
+      created_at: timestamp,
+    });
+
+    return {
+      summary: `revised "${data.title}" to v${version} (${wordCount.toLocaleString('en-GB')} words)`,
+      output: { script_id: scriptId, version, word_count: wordCount },
+    };
+  },
+};
+
+/* ------------------------------------------------------------------ */
 /* YouTube: fact check                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -732,6 +812,7 @@ const HANDLERS: CapabilityHandler<never>[] = [
   youtubeIdeas,
   youtubeResearch,
   youtubeScript,
+  youtubeScriptRevise,
   youtubeFactCheck,
   youtubeThumbnails,
   youtubeProduction,

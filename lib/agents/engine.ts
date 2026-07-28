@@ -53,7 +53,14 @@ export async function runAgent(
     return fail(store, ownerId, task, agent, decision.reason);
   }
 
-  const capability = agent.capabilities[0];
+  // A task may name the capability explicitly, which lets one agent hold
+  // several (the Scriptwriter both drafts and revises). Otherwise the agent's
+  // primary capability is used.
+  const requested = task.input.capability;
+  const capability =
+    typeof requested === 'string' && agent.capabilities.includes(requested)
+      ? requested
+      : agent.capabilities[0];
   const handler = capability ? getCapabilityHandler(capability) : undefined;
   if (!handler) {
     return fail(

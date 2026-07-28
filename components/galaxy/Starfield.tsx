@@ -26,7 +26,7 @@ export function Starfield({ count, animate }: { count: number; animate: boolean 
 
       const roll = Math.random();
       const colour = roll > 0.93 ? warm : roll > 0.86 ? cool : plain;
-      const brightness = 0.35 + Math.random() * 0.65;
+      const brightness = 0.45 + Math.random() * 0.55;
       colours[i * 3] = colour.r * brightness;
       colours[i * 3 + 1] = colour.g * brightness;
       colours[i * 3 + 2] = colour.b * brightness;
@@ -45,36 +45,32 @@ export function Starfield({ count, animate }: { count: number; animate: boolean 
   return (
     <points ref={points} geometry={geometry}>
       <pointsMaterial
-        size={0.32}
+        size={0.42}
         sizeAttenuation
         vertexColors
         transparent
-        opacity={0.85}
+        opacity={1}
         depthWrite={false}
       />
     </points>
   );
 }
 
-/** Faint orbit paths. Drawn once, never animated. */
+/** Faint orbit paths. Static geometry, never animated. */
 export function OrbitRings({ radii }: { radii: number[] }) {
-  const geometries = useMemo(
-    () =>
-      radii.map((radius) => {
-        const curve = new THREE.EllipseCurve(0, 0, radius, radius, 0, Math.PI * 2, false, 0);
-        return new THREE.BufferGeometry().setFromPoints(
-          curve.getPoints(96).map((p) => new THREE.Vector3(p.x, 0, p.y)),
-        );
-      }),
-    [radii],
-  );
-
   return (
-    <group>
-      {geometries.map((geometry, i) => (
-        <lineLoop key={i} geometry={geometry}>
-          <lineBasicMaterial color="#2a3350" transparent opacity={0.35} depthWrite={false} />
-        </lineLoop>
+    <group rotation={[Math.PI / 2, 0, 0]}>
+      {radii.map((radius) => (
+        <mesh key={radius}>
+          <ringGeometry args={[radius - 0.012, radius + 0.012, 128]} />
+          <meshBasicMaterial
+            color="#4a5c8f"
+            transparent
+            opacity={0.45}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
       ))}
     </group>
   );

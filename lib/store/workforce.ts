@@ -3,6 +3,13 @@
 import { create } from 'zustand';
 import type { WorkforceSnapshot } from '@/types/state';
 
+/**
+ * Selectors must return referentially stable values. Returning a fresh `[]`
+ * while the snapshot is still loading makes useSyncExternalStore believe the
+ * store changed on every render, which loops until React gives up.
+ */
+export const EMPTY = Object.freeze([]) as unknown as never[];
+
 export type Selection =
   | { type: 'agent'; id: string }
   | { type: 'mission'; id: string }
@@ -54,10 +61,14 @@ export const useWorkforce = create<WorkforceState>((set, get) => ({
   toggleActivity: () => set({ activityOpen: !get().activityOpen }),
 }));
 
-/* Convenience selectors — these keep components from re-deriving the same views. */
+/* Convenience selectors — these return stable references only. */
+
+export function useSnapshot() {
+  return useWorkforce((s) => s.snapshot);
+}
 
 export function useAgents() {
-  return useWorkforce((s) => s.snapshot?.agents ?? []);
+  return useWorkforce((s) => s.snapshot?.agents) ?? EMPTY;
 }
 
 export function useAgent(id: string | null | undefined) {
@@ -68,19 +79,4 @@ export function useAgent(id: string | null | undefined) {
 
 export function useMetrics() {
   return useWorkforce((s) => s.snapshot?.metrics ?? null);
-}
-
-export function usePendingApprovals() {
-  return useWorkforce(
-    (s) => s.snapshot?.approvals.filter((a) => a.status === 'pending') ?? [],
-  );
-}
-
-export function useActiveMissions() {
-  return useWorkforce(
-    (s) =>
-      s.snapshot?.missions.filter(
-        (m) => !['completed', 'cancelled', 'failed'].includes(m.status),
-      ) ?? [],
-  );
 }

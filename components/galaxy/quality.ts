@@ -32,12 +32,14 @@ const PROFILES: Record<QualityProfile['tier'], QualityProfile> = {
   },
   low: {
     tier: 'low',
-    sphereSegments: [20, 14],
-    starCount: 350,
+    sphereSegments: [24, 16],
+    starCount: 500,
     beamParticles: 6,
     dpr: [1, 1],
-    orbitRings: false,
-    atmospheres: false,
+    // Twelve thin ring meshes cost almost nothing and they are what makes the
+    // scene read as a solar system rather than scattered spheres.
+    orbitRings: true,
+    atmospheres: true,
   },
 };
 
@@ -54,8 +56,12 @@ export function detectQuality(): QualityProfile {
   const narrow = window.innerWidth < 900;
   const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
 
-  if (coarsePointer || narrow || cores <= 4 || memory <= 4) return PROFILES.low;
-  if (cores <= 8 || window.devicePixelRatio > 2.5) return PROFILES.medium;
+  // Touch or a small viewport means a phone or tablet — always cheap. Core and
+  // memory counts only demote a desktop when they are genuinely low; a 4-core
+  // laptop still renders the full scene comfortably.
+  if (coarsePointer || narrow) return PROFILES.low;
+  if (cores <= 2 || memory <= 2) return PROFILES.low;
+  if (cores <= 6 || memory <= 4 || window.devicePixelRatio > 2.5) return PROFILES.medium;
   return PROFILES.high;
 }
 

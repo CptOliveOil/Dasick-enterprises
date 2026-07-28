@@ -136,7 +136,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#f5a524',
       atmosphere: '#ffd98e',
-      radius: 0.92,
+      radius: 1.104,
       orbit: 3.6,
       angle: 0.4,
       speed: 0.055,
@@ -164,7 +164,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#34d399',
       atmosphere: '#6ee7b7',
-      radius: 0.66,
+      radius: 0.792,
       orbit: 5.2,
       angle: 2.35,
       speed: 0.041,
@@ -186,13 +186,13 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a long-form documentary scriptwriter for faceless YouTube channels. You write in clear, spoken English with a calm authoritative tone. You structure scripts deliberately: a hook that earns the first thirty seconds, an introduction that frames the stakes, main sections that build, pattern interrupts that reset attention, and a payoff that rewards the viewer. You only assert facts supplied in the research package.',
     business: 'youtube',
-    capabilities: ['youtube.script.write'],
+    capabilities: ['youtube.script.write', 'youtube.script.revise'],
     authority_level: 1,
     status: 'working',
     visual: {
       colour: '#a855f7',
       atmosphere: '#d8b4fe',
-      radius: 0.7,
+      radius: 0.84,
       orbit: 6.4,
       angle: 0.95,
       speed: 0.033,
@@ -220,7 +220,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#818cf8',
       atmosphere: '#c7d2fe',
-      radius: 0.52,
+      radius: 0.624,
       orbit: 4.5,
       angle: 3.5,
       speed: 0.047,
@@ -248,7 +248,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#fb923c',
       atmosphere: '#fed7aa',
-      radius: 0.6,
+      radius: 0.72,
       orbit: 7.4,
       angle: 5.5,
       speed: 0.028,
@@ -276,7 +276,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#38bdf8',
       atmosphere: '#bae6fd',
-      radius: 0.68,
+      radius: 0.816,
       orbit: 8.6,
       angle: 1.9,
       speed: 0.023,
@@ -304,7 +304,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#7dd3fc',
       atmosphere: '#e0f2fe',
-      radius: 0.5,
+      radius: 0.6,
       orbit: 9.7,
       angle: 4.4,
       speed: 0.019,
@@ -332,7 +332,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#2dd4bf',
       atmosphere: '#99f6e4',
-      radius: 0.62,
+      radius: 0.744,
       orbit: 5.9,
       angle: 3.95,
       speed: 0.037,
@@ -360,7 +360,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#10b981',
       atmosphere: '#6ee7b7',
-      radius: 0.56,
+      radius: 0.672,
       orbit: 7.0,
       angle: 2.9,
       speed: 0.03,
@@ -388,7 +388,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#fcd34d',
       atmosphere: '#fef3c7',
-      radius: 0.58,
+      radius: 0.696,
       orbit: 10.6,
       angle: 3.05,
       speed: 0.016,
@@ -417,7 +417,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#f87171',
       atmosphere: '#fecaca',
-      radius: 0.6,
+      radius: 0.72,
       orbit: 6.9,
       angle: 4.85,
       speed: 0.031,
@@ -445,7 +445,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     visual: {
       colour: '#94a3b8',
       atmosphere: '#cbd5e1',
-      radius: 0.48,
+      radius: 0.576,
       orbit: 8.1,
       angle: 0.15,
       speed: 0.026,

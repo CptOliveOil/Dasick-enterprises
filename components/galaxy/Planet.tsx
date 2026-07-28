@@ -81,6 +81,9 @@ export function Planet({
 
   const emissive = style.glow * (dimmed ? 0.25 : 1) * (selected || hovered ? 1.4 : 1);
   const opacity = style.dim ? 0.42 : dimmed ? 0.3 : 1;
+  // The bloom takes the planet's own colour so identity survives at a glance;
+  // status is carried by the tighter inner halo and the rings.
+  const bloom = useMemo(() => glowTexture(visual.atmosphere), [visual.atmosphere]);
 
   return (
     <group ref={group}>
@@ -106,11 +109,13 @@ export function Planet({
         <sphereGeometry args={[visual.radius, ...quality.sphereSegments]} />
         <meshStandardMaterial
           map={surface}
-          color={visual.colour}
-          emissive={new THREE.Color(style.colour)}
-          emissiveIntensity={emissive * 0.32}
-          roughness={0.72}
-          metalness={0.08}
+          // White base: the texture already carries the hue, so tinting again
+          // only muddies it.
+          color="#ffffff"
+          emissive={new THREE.Color(visual.colour)}
+          emissiveIntensity={0.14 + emissive * 0.14}
+          roughness={0.85}
+          metalness={0.05}
           transparent
           opacity={opacity}
         />
@@ -118,12 +123,12 @@ export function Planet({
 
       {/* Atmospheric rim: a slightly larger inverted shell, additively blended. */}
       {quality.atmospheres && (
-        <mesh scale={1.14}>
+        <mesh scale={1.1}>
           <sphereGeometry args={[visual.radius, ...quality.sphereSegments]} />
           <meshBasicMaterial
             color={visual.atmosphere}
             transparent
-            opacity={0.14 * (dimmed ? 0.4 : 1) * (style.dim ? 0.3 : 1)}
+            opacity={0.34 * (dimmed ? 0.4 : 1) * (style.dim ? 0.25 : 1)}
             side={THREE.BackSide}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
@@ -131,12 +136,23 @@ export function Planet({
         </mesh>
       )}
 
-      {/* Bloom sprite. Scales with status so "working" genuinely reads brighter. */}
-      <sprite scale={visual.radius * (3.4 + emissive * 0.8)}>
+      {/* Planet bloom — identity. */}
+      <sprite scale={visual.radius * 4.6}>
+        <spriteMaterial
+          map={bloom}
+          transparent
+          opacity={0.42 * (dimmed ? 0.3 : 1) * (style.dim ? 0.25 : 1)}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      {/* Status bloom — tighter and brighter, so "working" genuinely reads hotter. */}
+      <sprite scale={visual.radius * (2.4 + emissive * 1.1)}>
         <spriteMaterial
           map={halo}
           transparent
-          opacity={0.5 * emissive * (dimmed ? 0.35 : 1)}
+          opacity={0.3 * emissive * (dimmed ? 0.3 : 1)}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />

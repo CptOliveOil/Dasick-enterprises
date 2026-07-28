@@ -3,13 +3,13 @@
 import Link from 'next/link';
 import { Bell, CircleUser } from 'lucide-react';
 import { useState } from 'react';
-import { useWorkforce } from '@/lib/store/workforce';
+import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { formatRelativeTime } from '@/lib/utils';
 import { CommandBar } from './CommandBar';
 import { GlobalSearch } from './GlobalSearch';
 
 export function TopBar() {
-  const notifications = useWorkforce((s) => s.snapshot?.notifications ?? []);
+  const notifications = useWorkforce((s) => s.snapshot?.notifications) ?? EMPTY;
   const demo = useWorkforce((s) => s.snapshot?.demo ?? false);
   const aiLive = useWorkforce((s) => s.snapshot?.aiLive ?? false);
   const [showNotifications, setShowNotifications] = useState(false);
