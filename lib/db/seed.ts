@@ -33,6 +33,7 @@ import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
 import { newVideo } from '@/lib/production/defaults';
 import type { ProductionStage } from '@/types/production';
 import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations/registry';
+import type { SourceResolutionRecord } from '@/types/islamic';
 
 export const DEMO_OWNER_ID = stableId('owner:demo');
 
@@ -167,7 +168,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are the Commander, the orchestrating manager of an AI workforce operating several small businesses. You receive an operator instruction and decide which business it belongs to, what the goal is, and which specialist agents should do the work. You never perform specialist work yourself. You never authorise spending, publishing or external actions — those require operator approval. Be concise and decisive.',
     business: null,
-    capabilities: ['orchestrate'],
+    capabilities: ['orchestrate', 'manager.briefing', 'manager.recommendations'],
     authority_level: 2,
     status: 'idle',
     visual: {
@@ -814,6 +815,9 @@ function memory(): AgentMemory[] {
     content,
     importance,
     source: 'Learned from channel performance review',
+    origin: 'agent' as const,
+    status: 'active' as const,
+    pinned: false,
     created_at: daysAgo(20 - i),
     last_used_at: minutesAgo(60 + i * 30),
   }));
@@ -841,6 +845,9 @@ function missions(): Mission[] {
       objective:
         'Produce a full documentary video about the collapse of the Bronze Age, from research through to production plan.',
       status: 'running',
+      priority: 'normal',
+      target_date: null,
+      target_time: null,
       workflow_definition_id: stableId('workflow:youtube_video'),
       context: { topic: 'Bronze Age collapse', channel: 'History' },
       progress: 34,
@@ -858,6 +865,9 @@ function missions(): Mission[] {
       objective:
         'Research, design and list a Ramadan planner and activity pack ahead of the season.',
       status: 'running',
+      priority: 'normal',
+      target_date: null,
+      target_time: null,
       workflow_definition_id: stableId('workflow:etsy_product'),
       context: { season: 'Ramadan' },
       progress: 72,
@@ -874,6 +884,9 @@ function missions(): Mission[] {
       title: 'Weekly Channel Analytics',
       objective: 'Analyse the last seven days of channel performance and update channel intelligence.',
       status: 'running',
+      priority: 'normal',
+      target_date: null,
+      target_time: null,
       workflow_definition_id: null,
       context: {},
       progress: 81,
@@ -890,6 +903,9 @@ function missions(): Mission[] {
       title: 'Produce YouTube Video #007',
       objective: 'Produce a documentary video about the Antikythera mechanism.',
       status: 'needs_approval',
+      priority: 'normal',
+      target_date: null,
+      target_time: null,
       workflow_definition_id: stableId('workflow:youtube_video'),
       context: { topic: 'Antikythera mechanism' },
       progress: 68,
@@ -1093,8 +1109,90 @@ function tasks(): Task[] {
 /* Approvals                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * One unsourced religious claim, waiting on the operator.
+ *
+ * Seeded so the resolution gate is something you can actually work through in
+ * the demo rather than a screen you have to construct. Clearly demo data, like
+ * every other seeded row.
+ */
+const SOURCE_RESOLUTION_ID = stableId('resolution:islamic-1');
+const SOURCE_RESOLUTION_ITEM_ID = stableId('resolution:islamic-1:item');
+
+function sourceResolutions(): SourceResolutionRecord[] {
+  return [
+    {
+      id: SOURCE_RESOLUTION_ID,
+      owner_id: DEMO_OWNER_ID,
+      business_id: BUSINESS_IDS.islamic,
+      source_check_id: null,
+      script_id: null,
+      video_id: null,
+      mission_id: null,
+      task_id: null,
+      approval_id: null,
+      items: [
+        {
+          id: SOURCE_RESOLUTION_ITEM_ID,
+          claim:
+            'A narration attributing a saying about seeking knowledge to the Prophet \u0635\u0644\u0649 \u0627\u0644\u0644\u0647 \u0639\u0644\u064a\u0647 \u0648\u0633\u0644\u0645.',
+          reason:
+            'Widely circulated, but the Source Checker could not place it in a named collection. Familiarity is not evidence.',
+          current_source: null,
+          location: 'Research evidence 2',
+          category: 'UNVERIFIED',
+          status: 'unresolved',
+          action: null,
+          resolved_source: null,
+          edited_claim: null,
+          override_reason: null,
+          resolved_by: null,
+          resolved_at: null,
+        },
+      ],
+      status: 'open',
+      is_demo: true,
+      created_at: minutesAgo(26),
+      updated_at: minutesAgo(26),
+    },
+  ];
+}
+
 function approvals(): Approval[] {
   return [
+    {
+      id: stableId('approval:source-islamic'),
+      owner_id: DEMO_OWNER_ID,
+      business_id: BUSINESS_IDS.islamic,
+      mission_id: null,
+      task_id: null,
+      agent_id: AGENT_IDS.islamicSourceChecker,
+      kind: 'source',
+      title: 'Source required: 1 claim',
+      summary:
+        'One religious claim could not be verified. Add a reference, ask the Source Checker to research it, edit or remove the claim, or override deliberately. Nothing continues until it is settled.',
+      payload: {
+        resolution_id: SOURCE_RESOLUTION_ID,
+        claims: 1,
+        items: [
+          {
+            id: SOURCE_RESOLUTION_ITEM_ID,
+            claim:
+              'A narration attributing a saying about seeking knowledge to the Prophet \u0635\u0644\u0649 \u0627\u0644\u0644\u0647 \u0639\u0644\u064a\u0647 \u0648\u0633\u0644\u0645.',
+            reason:
+              'Widely circulated, but the Source Checker could not place it in a named collection. Familiarity is not evidence.',
+            current_source: null,
+            location: 'Research evidence 2',
+            category: 'UNVERIFIED',
+          },
+        ],
+      },
+      status: 'pending',
+      feedback: null,
+      is_demo: true,
+      created_at: minutesAgo(26),
+      resolved_at: null,
+    },
     {
       id: stableId('approval:script-007'),
       owner_id: DEMO_OWNER_ID,
@@ -2098,6 +2196,7 @@ function profile(): Profile {
  */
 export async function seedDemoData(store: DataStore): Promise<void> {
   await store.insert('profiles', profile());
+  await store.insertMany('source_resolutions', sourceResolutions());
   await store.insertMany('businesses', businesses());
   await store.insertMany('agents', agents());
   await store.insertMany('agent_memory', memory());

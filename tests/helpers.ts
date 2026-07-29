@@ -1,5 +1,6 @@
 import { MemoryStore } from '@/lib/db/memory-store';
 import { newAgent } from '@/lib/agents/factory';
+import { newMemory } from '@/lib/agents/memory-factory';
 import { uuid } from '@/lib/ids';
 import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
 import type { Agent, Business, PlanetVisual } from '@/types/domain';

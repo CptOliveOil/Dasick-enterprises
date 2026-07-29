@@ -6,6 +6,20 @@ import { recomputeMission, releaseUnblockedTasks } from './engine';
 
 export type ApprovalDecision = 'approve' | 'reject' | 'request_changes';
 
+/**
+ * A rule said no.
+ *
+ * Distinct from a crash so callers can answer 409 rather than 500: the request
+ * was well-formed and the server is fine — the workspace is simply not in a
+ * state where that decision is allowed yet, and the message says why.
+ */
+export class ApprovalRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApprovalRefused';
+  }
+}
+
 export interface ResolveApprovalResult {
   approval: Approval;
   /** True when the mission can now continue running. */
@@ -42,7 +56,10 @@ export async function resolveApproval(
 
   if (decision === 'approve') {
     const blocked = await sourcePolicyBlock(store, ownerId, existing);
-    if (blocked) throw new Error(blocked);
+    if (blocked) throw new ApprovalRefused(blocked);
+
+    const unsettled = await unresolvedClaims(store, existing);
+    if (unsettled) throw new ApprovalRefused(unsettled);
   }
 
   const timestamp = new Date().toISOString();
@@ -180,6 +197,32 @@ async function sourcePolicyBlock(
 }
 
 /**
+ * Refuses to close a source gate while claims are still unsourced.
+ *
+ * The gate exists to make each claim a decision. Approving the gate wholesale
+ * while claims sit unresolved would turn it into exactly the click-through it
+ * was designed to avoid — so every claim must be settled first, and "override"
+ * is one of the ways to settle one.
+ */
+async function unresolvedClaims(
+  store: DataStore,
+  approval: Approval,
+): Promise<string | null> {
+  if (approval.kind !== 'source') return null;
+  const resolutionId =
+    typeof approval.payload.resolution_id === 'string' ? approval.payload.resolution_id : null;
+  if (!resolutionId) return null;
+
+  const record = await store.get('source_resolutions', resolutionId).catch(() => null);
+  if (!record) return null;
+
+  const outstanding = record.items.filter((item) => item.status === 'unresolved');
+  if (outstanding.length === 0) return null;
+
+  return `${outstanding.length} claim${outstanding.length === 1 ? '' : 's'} still ${outstanding.length === 1 ? 'has' : 'have'} no source. Settle each one — add a reference, ask the Source Checker to research it, edit or remove the claim, or override it deliberately — before closing this.`;
+}
+
+/**
  * Approval kinds map onto real records. Approving a script marks the script
  * approved; rejecting a listing leaves it a draft and never publishes it.
  */
@@ -217,6 +260,40 @@ async function applyDomainEffects(
             status: approved ? 'production' : 'script',
             blocked_reason: null,
             updated_at: timestamp,
+          });
+        }
+      }
+      break;
+    }
+    case 'source': {
+      // Approving the gate marks it settled. It cannot be reached with anything
+      // still unresolved — `unresolvedClaims` refuses earlier — so this only
+      // records the close. Rejecting leaves the record open, because the claims
+      // are still unsourced whatever the operator decided about the gate.
+      const resolutionId =
+        typeof approval.payload.resolution_id === 'string'
+          ? approval.payload.resolution_id
+          : null;
+      if (resolutionId && approved) {
+        await store.update('source_resolutions', resolutionId, {
+          status: 'resolved',
+          approval_id: approval.id,
+          updated_at: timestamp,
+        });
+      }
+      break;
+    }
+    case 'memory': {
+      // A memory an agent wanted to keep. Approving activates it; anything else
+      // archives it rather than deleting, so the record of what was proposed —
+      // and refused — survives.
+      const memoryId =
+        typeof approval.payload.memory_id === 'string' ? approval.payload.memory_id : null;
+      if (memoryId) {
+        const memory = await store.get('agent_memory', memoryId).catch(() => null);
+        if (memory) {
+          await store.update('agent_memory', memoryId, {
+            status: approved ? 'active' : 'archived',
           });
         }
       }

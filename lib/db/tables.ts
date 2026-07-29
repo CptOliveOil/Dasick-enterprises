@@ -48,6 +48,7 @@ import type {
   IslamicResearch,
   IslamicSourceCheck,
   SourcePolicy,
+  SourceResolutionRecord,
   VisualRules,
 } from '@/types/islamic';
 
@@ -101,6 +102,7 @@ export interface Tables {
   production_settings: ProductionSettings;
   islamic_research: IslamicResearch;
   islamic_source_checks: IslamicSourceCheck;
+  source_resolutions: SourceResolutionRecord;
   source_policies: SourcePolicy;
   visual_rules: VisualRules;
 }

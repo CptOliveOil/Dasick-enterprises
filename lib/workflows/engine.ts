@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/tables';
 import { logActivity } from '@/lib/agents/activity';
 import type {
   Mission,
+  MissionPriority,
   MissionStatus,
   Task,
   TaskPriority,
@@ -35,6 +36,11 @@ export interface CreateMissionInput {
   context?: Record<string, unknown>;
   /** Applied to the first step's input — used for one-shot commands. */
   seedInput?: Record<string, unknown>;
+  priority?: MissionPriority;
+  /** ISO date. Only set when a deadline was genuinely asked for. */
+  targetDate?: string | null;
+  /** HH:MM alongside `targetDate`. */
+  targetTime?: string | null;
 }
 
 export interface CreatedMission {
@@ -118,6 +124,11 @@ export async function createMission(
     title: input.title,
     objective: input.objective,
     status: 'planning',
+    priority: input.priority ?? 'normal',
+    // Deadlines are never inferred. They exist only when the operator asked for
+    // one, or their instruction named a date the Manager could read.
+    target_date: input.targetDate ?? null,
+    target_time: input.targetTime ?? null,
     workflow_definition_id: workflow?.id ?? null,
     context: input.context ?? {},
     progress: 0,

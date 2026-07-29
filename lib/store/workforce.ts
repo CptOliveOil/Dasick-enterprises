@@ -24,12 +24,21 @@ interface WorkforceState {
   selection: Selection;
   hoveredAgentId: string | null;
   activityOpen: boolean;
+  /**
+   * Text waiting in the command bar. A quick command or a search result fills
+   * this; nothing sends it. The operator always presses the button.
+   */
+  draftCommand: string;
+  /** Which business the interface is filtered to. Null is "all businesses". */
+  businessFilter: string | null;
 
   refresh: () => Promise<void>;
   setBusy: (label: string | null) => void;
   select: (selection: Selection) => void;
   hover: (agentId: string | null) => void;
   toggleActivity: () => void;
+  setDraftCommand: (text: string) => void;
+  setBusinessFilter: (businessId: string | null) => void;
 }
 
 export const useWorkforce = create<WorkforceState>((set, get) => ({
@@ -40,6 +49,8 @@ export const useWorkforce = create<WorkforceState>((set, get) => ({
   selection: null,
   hoveredAgentId: null,
   activityOpen: true,
+  draftCommand: '',
+  businessFilter: null,
 
   async refresh() {
     try {
@@ -59,6 +70,8 @@ export const useWorkforce = create<WorkforceState>((set, get) => ({
   select: (selection) => set({ selection }),
   hover: (hoveredAgentId) => set({ hoveredAgentId }),
   toggleActivity: () => set({ activityOpen: !get().activityOpen }),
+  setDraftCommand: (draftCommand) => set({ draftCommand }),
+  setBusinessFilter: (businessFilter) => set({ businessFilter }),
 }));
 
 /* Convenience selectors — these return stable references only. */

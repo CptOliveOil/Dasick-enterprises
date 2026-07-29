@@ -7,6 +7,8 @@ import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { AUTHORITY_DESCRIPTIONS } from '@/lib/agents/authority';
 import { AgentInspector } from '@/components/agents/AgentInspector';
 import { AgentIdentity } from '@/components/agents/AgentIdentity';
+import { AgentMemoryPanel } from '@/components/agents/AgentMemory';
+import { AgentPerformance } from '@/components/agents/AgentPerformance';
 import { Button, EmptyState, Field, Panel, PanelHeader, inputClass } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
 import type { AuthorityLevel } from '@/types/domain';
@@ -82,6 +84,14 @@ export default function AgentPage() {
               businesses={businesses.map((b) => ({ id: b.id, name: b.name }))}
               onSaved={refresh}
             />
+          </Section>
+
+          <Section title="Workload and performance">
+            <AgentPerformance agent={agent} />
+          </Section>
+
+          <Section title="Memory">
+            <AgentMemoryPanel agentId={agent.id} />
           </Section>
 
           <Section title="Instructions">

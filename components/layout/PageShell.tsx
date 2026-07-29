@@ -45,12 +45,39 @@ export function PageShell({
   );
 }
 
-export function Tabs({ tabs }: { tabs: { href: string; label: string }[] }) {
+export function Tabs({
+  tabs,
+  onSelect,
+  active: activeHref,
+}: {
+  tabs: { href: string; label: string }[];
+  /** When given, tabs switch in place rather than navigating. */
+  onSelect?: (href: string) => void;
+  active?: string;
+}) {
   const pathname = usePathname();
   return (
     <nav className="scroll-thin mb-5 flex gap-1 overflow-x-auto border-b border-[var(--color-edge)] pb-px">
       {tabs.map((tab) => {
-        const active = pathname === tab.href;
+        const active = activeHref ? activeHref === tab.href : pathname === tab.href;
+        if (onSelect) {
+          return (
+            <button
+              key={tab.href}
+              type="button"
+              onClick={() => onSelect(tab.href)}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors',
+                active
+                  ? 'border-amber-400 text-[var(--color-ink)]'
+                  : 'border-transparent text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+              )}
+            >
+              {tab.label}
+            </button>
+          );
+        }
         return (
           <Link
             key={tab.href}

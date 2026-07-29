@@ -25,19 +25,19 @@ export function CommandBar({ className }: { className?: string }) {
   const busy = useWorkforce((s) => s.busy);
   const setBusy = useWorkforce((s) => s.setBusy);
   const refresh = useWorkforce((s) => s.refresh);
+  const draft = useWorkforce((s) => s.draftCommand);
+  const setDraft = useWorkforce((s) => s.setDraftCommand);
   const input = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
+  // A quick command or a search result fills the bar. It never sends — the
+  // operator reads what they are about to run and presses the button.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        input.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    if (!draft) return;
+    setValue(draft);
+    setDraft('');
+    input.current?.focus();
+  }, [draft, setDraft]);
 
   const submit = async (instruction: string) => {
     const trimmed = instruction.trim();
@@ -80,6 +80,17 @@ export function CommandBar({ className }: { className?: string }) {
           ref={input}
           value={value}
           onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            // Cmd/Ctrl+Enter sends from anywhere in the field, which matters
+            // once an instruction is long enough to wrap.
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault();
+              void submit(value);
+            }
+            if (event.key === 'Escape') {
+              event.currentTarget.blur();
+            }
+          }}
           onFocus={() => setFocused(true)}
           onBlur={() => window.setTimeout(() => setFocused(false), 140)}
           placeholder="Command your AI workforce…"

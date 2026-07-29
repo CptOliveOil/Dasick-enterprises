@@ -10,6 +10,7 @@ import { loadRelevantMemory } from '@/lib/agents/context';
 import { ACCOUNT_ROLES } from '@/types/domain';
 import { makeAgent, makeBusiness, makeWorkspace, OWNER_ID } from './helpers';
 import { MemoryStore } from '@/lib/db/memory-store';
+import { newMemory } from '@/lib/agents/memory-factory';
 import { uuid } from '@/lib/ids';
 
 beforeEach(() => {
@@ -305,17 +306,16 @@ describe('per-channel memory isolation', () => {
 
     await store.insertMany(
       'agent_memory',
-      rows.map(([content, businessId]) => ({
-        id: uuid(),
-        agent_id: agent.id,
-        business_id: businessId,
-        type: 'insight' as const,
-        content,
-        importance: 5,
-        source: 'test',
-        created_at: new Date().toISOString(),
-        last_used_at: null,
-      })),
+      rows.map(([content, businessId]) =>
+        newMemory({
+          agent_id: agent.id,
+          business_id: businessId,
+          type: 'insight',
+          content,
+          importance: 5,
+          source: 'test',
+        }),
+      ),
     );
 
     return { store, agent, channelA, channelB };

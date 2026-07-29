@@ -12,6 +12,7 @@ import type {
 } from '@/types/production';
 import { resolveScript, resolveVideo, setStage } from './context';
 import { baseProductionContext } from './prompt';
+import { auditIslamicSources, describeAudit, islamicQualityIssues } from '@/lib/islamic/audit';
 
 /* ------------------------------------------------------------------ */
 /* Metadata                                                            */
@@ -288,6 +289,17 @@ async function gatherFacts(
   const ordered = scenes.slice().sort((a, b) => a.scene_number - b.scene_number);
   const timeline = timelines.find((t) => t.id === video.timeline_id) ?? timelines[0];
 
+  // Religious sourcing, on channels that do it. Counted from stored records
+  // rather than judged here — the checking already happened, and this is the
+  // report of it reaching the last screen before publishing.
+  const islamic = await auditIslamicSources(ctx.store, ctx.ownerId, {
+    businessId: video.business_id,
+    videoId: video.id,
+    scriptId: video.script_id,
+    missionId: video.mission_id ?? ctx.task.mission_id,
+  });
+  issues.push(...islamicQualityIssues(islamic));
+
   if (ordered.length === 0) {
     issues.push({
       code: 'no_scenes',
@@ -464,6 +476,21 @@ async function gatherFacts(
       caption_files: assets.filter((a) => a.type === 'subtitle_file').length,
       simulated_assets: simulated.length,
       unresolved_fact_check_findings: unresolved.length,
+      ...(islamic.applies
+        ? {
+            islamic_sourcing: {
+              quran_references: islamic.quranReferences,
+              hadith_references: islamic.hadithReferences,
+              scholarly_points: islamic.scholarlyPoints,
+              differences_of_opinion: islamic.differences,
+              unresolved_needs_source: islamic.unresolvedNeedsSource,
+              questionable: islamic.questionable,
+              incorrect: islamic.incorrect,
+              manual_overrides: islamic.overrides.length,
+            },
+            islamic_summary: describeAudit(islamic),
+          }
+        : {}),
     },
     deterministic: issues,
     measured,

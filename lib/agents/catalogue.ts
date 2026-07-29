@@ -38,6 +38,13 @@ const GROUPS: { key: string; label: string; description: string; prefixes: strin
     prefixes: ['etsy.'],
   },
   {
+    key: 'operations',
+    label: 'Operations',
+    description:
+      'The Manager reading real workspace state. These never invent events — they are given a digest and asked to read it.',
+    prefixes: ['manager.'],
+  },
+  {
     key: 'general',
     label: 'General',
     description: 'Cross-business work that is not tied to one platform.',

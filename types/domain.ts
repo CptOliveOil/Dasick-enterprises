@@ -161,6 +161,28 @@ export type AgentMemoryType =
   | 'constraint'
   | 'performance';
 
+/** Who wrote a memory. Owner-written rules are not second-guessed; agent-written ones are labelled. */
+export const MEMORY_ORIGINS = ['agent', 'owner'] as const;
+export type MemoryOrigin = (typeof MEMORY_ORIGINS)[number];
+
+export const MEMORY_STATUSES = ['active', 'pending', 'archived'] as const;
+export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
+
+/**
+ * Importance band. `high` means a durable rule that will shape every future
+ * mission — the sort of thing that must not appear in an agent's head without
+ * the operator having seen it.
+ */
+export const MEMORY_BANDS = ['low', 'normal', 'high'] as const;
+export type MemoryBand = (typeof MEMORY_BANDS)[number];
+
+/** 1–5 maps onto the three bands the UI and the approval gate reason about. */
+export function memoryBand(importance: number): MemoryBand {
+  if (importance >= 5) return 'high';
+  if (importance >= 3) return 'normal';
+  return 'low';
+}
+
 export interface AgentMemory {
   id: UUID;
   agent_id: UUID;
@@ -170,6 +192,11 @@ export interface AgentMemory {
   /** 1 (trivia) – 5 (always include). */
   importance: number;
   source: string;
+  origin: MemoryOrigin;
+  /** `pending` memories are awaiting approval and are NOT loaded into prompts. */
+  status: MemoryStatus;
+  /** Pinned memories are loaded first, regardless of importance ordering. */
+  pinned: boolean;
   created_at: Timestamp;
   last_used_at: Timestamp | null;
 }
@@ -189,6 +216,16 @@ export const MISSION_STATUSES = [
 ] as const;
 export type MissionStatus = (typeof MISSION_STATUSES)[number];
 
+export const MISSION_PRIORITIES = ['low', 'normal', 'high', 'critical'] as const;
+export type MissionPriority = (typeof MISSION_PRIORITIES)[number];
+
+export const MISSION_PRIORITY_LABELS: Record<MissionPriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  critical: 'Critical',
+};
+
 export interface Mission {
   id: UUID;
   owner_id: UUID;
@@ -198,6 +235,15 @@ export interface Mission {
   title: string;
   objective: string;
   status: MissionStatus;
+  /** Defaults to `normal`. Everything being "high" would mean nothing is. */
+  priority: MissionPriority;
+  /**
+   * Optional deadline, only ever set because the operator asked for one or
+   * their instruction named a date. Nothing infers a deadline.
+   */
+  target_date: string | null;
+  /** Optional HH:MM alongside `target_date`. */
+  target_time: string | null;
   workflow_definition_id: UUID | null;
   /** Free-form payload captured when the mission was created. */
   context: Record<string, unknown>;
@@ -312,7 +358,33 @@ export type ApprovalKind =
   | 'listing'
   | 'spend'
   | 'publish'
+  /** A religious claim needs a source before the content may continue. */
+  | 'source'
+  /** An agent wants to record a durable rule that will shape future missions. */
+  | 'memory'
   | 'generic';
+
+/**
+ * How the Approval Inbox groups decisions. Presentation only — the kind stays
+ * the thing the domain reasons about.
+ */
+export const APPROVAL_GROUPS = {
+  content: ['idea', 'research', 'script', 'thumbnail', 'video', 'product', 'listing'],
+  sources: ['source'],
+  budget: ['spend'],
+  publishing: ['publish'],
+  memory: ['memory'],
+  other: ['generic'],
+} as const satisfies Record<string, readonly ApprovalKind[]>;
+
+export type ApprovalGroup = keyof typeof APPROVAL_GROUPS;
+
+export function approvalGroupOf(kind: ApprovalKind): ApprovalGroup {
+  for (const [group, kinds] of Object.entries(APPROVAL_GROUPS)) {
+    if ((kinds as readonly string[]).includes(kind)) return group as ApprovalGroup;
+  }
+  return 'other';
+}
 
 /** Production-stage approvals reuse the kinds above; these name the stage. */
 export const PRODUCTION_APPROVAL_KINDS: ApprovalKind[] = [
@@ -412,7 +484,14 @@ export interface CommandMessage {
   content: string;
   mission_id: UUID | null;
   /** Structured references so chat is never disconnected from real work. */
-  refs: { tasks?: UUID[]; agents?: UUID[]; approvals?: UUID[] };
+  refs: {
+    tasks?: UUID[];
+    agents?: UUID[];
+    approvals?: UUID[];
+    /** A structured briefing or recommendation set, when the Manager produced one. */
+    briefing?: Record<string, unknown>;
+    recommendations?: Record<string, unknown>;
+  };
   created_at: Timestamp;
 }
 

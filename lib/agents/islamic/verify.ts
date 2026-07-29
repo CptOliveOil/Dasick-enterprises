@@ -9,11 +9,13 @@ import {
 } from '@/schemas/islamic';
 import {
   isBlocking,
+  needsResolution,
+  scriptCarriesDifferenceContext,
   VERIFICATION_LABELS,
   type IslamicResearch,
   type IslamicSourceCheck,
   type SourceFinding,
-  type VerificationStatus,
+  type SourceResolutionRecord,
 } from '@/types/islamic';
 import { baseIslamicContext, NO_FABRICATION } from './shared';
 
@@ -190,15 +192,21 @@ async function persistCheck(
 ) {
   const businessId = ctx.business?.id ?? ctx.task.business_id ?? '';
   const blockingFindings = input.findings.filter((finding) => isBlocking(finding.status));
-  const needsSource = input.findings.filter((finding) => finding.status === 'NEEDS_SOURCE');
+  const needsSource = input.findings.filter((finding) => needsResolution(finding.status));
   const differences = input.findings.filter(
     (finding) => finding.status === 'DIFFERENCE_OF_OPINION',
   );
 
+  // A difference of opinion may pass only when the script actually tells the
+  // audience there is one. The checker noticing is not the audience being told,
+  // so where the context is missing it becomes something to resolve rather than
+  // a note that quietly disappears.
+  const unlabelledDifferences = await missingDifferenceContext(ctx, input.scriptId, differences);
+
   const verdict: IslamicSourceCheck['verdict'] =
     blockingFindings.length > 0
       ? 'blocked'
-      : needsSource.length > 0 || input.policyViolations.length > 0
+      : needsSource.length > 0 || unlabelledDifferences.length > 0 || input.policyViolations.length > 0
         ? 'pass_with_notes'
         : 'pass';
 
@@ -260,16 +268,138 @@ async function persistCheck(
 
   const notes = [
     needsSource.length > 0 ? `${needsSource.length} claim(s) need a source` : '',
-    differences.length > 0 ? `${differences.length} difference(s) of opinion to label` : '',
+    unlabelledDifferences.length > 0
+      ? `${unlabelledDifferences.length} difference(s) of opinion not labelled in the script`
+      : '',
     input.policyViolations.length > 0
       ? `${input.policyViolations.length} channel-policy issue(s)`
       : '',
   ].filter(Boolean);
 
+  // NEEDS_SOURCE is an unfinished job, not a defect. It pauses the mission at a
+  // resolution gate the operator can actually act on — add a source, ask for a
+  // re-check, edit or remove the claim, or override deliberately — rather than
+  // failing the task or, worse, sliding past unnoticed.
+  const pending = [...needsSource, ...unlabelledDifferences];
+  if (pending.length > 0) {
+    const resolution = await openResolution(ctx, {
+      businessId,
+      sourceCheckId: id,
+      scriptId: input.scriptId,
+      findings: pending,
+    });
+
+    return {
+      summary: `checked ${input.findings.length} claim${input.findings.length === 1 ? '' : 's'} — ${pending.length} need${pending.length === 1 ? 's' : ''} a source before this can continue`,
+      output: { ...output, notes, resolution_id: resolution.id, unresolved: pending.length },
+      approval: {
+        kind: 'source' as const,
+        title: `Source required: ${pending.length} claim${pending.length === 1 ? '' : 's'}`,
+        summary:
+          `${pending.length} religious claim${pending.length === 1 ? '' : 's'} could not be verified. ` +
+          `Add a reference, ask the Source Checker to research it, edit or remove the claim, or override deliberately. ` +
+          `Nothing continues until each one is settled.`,
+        payload: {
+          resolution_id: resolution.id,
+          source_check_id: id,
+          script_id: input.scriptId,
+          research_id: input.researchId,
+          video_id: record.video_id,
+          claims: pending.length,
+          items: resolution.items.map((item) => ({
+            id: item.id,
+            claim: item.claim,
+            reason: item.reason,
+            current_source: item.current_source,
+            location: item.location,
+            category: item.category,
+          })),
+        },
+      },
+    };
+  }
+
   return {
     summary: `checked ${input.findings.length} religious claim${input.findings.length === 1 ? '' : 's'}${notes.length > 0 ? ` — ${notes.join(', ')}` : ' — all supported'}`,
     output: { ...output, notes },
   };
+}
+
+/**
+ * Records the claims awaiting a decision.
+ *
+ * Kept as its own row rather than living in the approval payload, because the
+ * outcome has to outlive the approval: the final QC report needs to say which
+ * claims were overridden, months later, when the approval is long resolved.
+ */
+async function openResolution(
+  ctx: RunContext,
+  input: {
+    businessId: string;
+    sourceCheckId: string;
+    scriptId: string | null;
+    findings: SourceFinding[];
+  },
+): Promise<SourceResolutionRecord> {
+  const timestamp = now();
+  const record: SourceResolutionRecord = {
+    id: uuid(),
+    owner_id: ctx.ownerId,
+    business_id: input.businessId,
+    source_check_id: input.sourceCheckId,
+    script_id: input.scriptId,
+    video_id: typeof ctx.task.input.video_id === 'string' ? ctx.task.input.video_id : null,
+    mission_id: ctx.task.mission_id,
+    task_id: ctx.task.id,
+    approval_id: null,
+    items: input.findings.map((finding) => ({
+      id: uuid(),
+      claim: finding.claim,
+      reason: finding.explanation,
+      current_source: finding.correction,
+      location: finding.location,
+      category: finding.category,
+      status: 'unresolved' as const,
+      action: null,
+      resolved_source: null,
+      edited_claim: null,
+      override_reason: null,
+      resolved_by: null,
+      resolved_at: null,
+    })),
+    status: 'open',
+    is_demo: false,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  await ctx.store.insert('source_resolutions', record);
+  return record;
+}
+
+/**
+ * Differences of opinion whose context is missing from the script.
+ *
+ * When there is no script yet — a research-stage check — there is nothing to
+ * inspect, so nothing is flagged: the labelling requirement applies to what the
+ * audience hears, and the script review step checks it again once one exists.
+ */
+async function missingDifferenceContext(
+  ctx: RunContext,
+  scriptId: string | null,
+  differences: SourceFinding[],
+): Promise<SourceFinding[]> {
+  if (differences.length === 0 || !scriptId) return [];
+
+  const businessId = ctx.business?.id ?? ctx.task.business_id;
+  if (businessId) {
+    const policy = await getSourcePolicy(ctx.store, ctx.ownerId, businessId);
+    if (!policy.require_difference_labelling) return [];
+  }
+
+  const script = await ctx.store.get('youtube_scripts', scriptId);
+  if (!script) return [];
+  const body = script.sections.map((section) => `${section.heading} ${section.body}`).join('\n');
+  return scriptCarriesDifferenceContext(body) ? [] : differences;
 }
 
 /* ------------------------------------------------------------------ */

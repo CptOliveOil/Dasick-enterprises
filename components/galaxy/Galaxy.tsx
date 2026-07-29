@@ -66,17 +66,30 @@ export function Galaxy({ className }: { className?: string }) {
   const agents = snapshot?.agents ?? EMPTY;
   const tasks = snapshot?.tasks ?? EMPTY;
   const connections = snapshot?.connections ?? EMPTY;
+  const businessFilter = useWorkforce((s) => s.businessFilter);
 
   const selectedAgentId = selection?.type === 'agent' ? selection.id : null;
 
-  // Selecting a mission highlights only the planets involved in it.
+  // Selecting a mission highlights only the planets involved in it. Filtering
+  // to a business highlights that channel's own agents plus the shared ones —
+  // shared agents stay visible because they genuinely work on it, and dimming
+  // them would suggest the channel has fewer hands than it does. Nothing is
+  // duplicated or hidden: the same planet, lit differently.
   const highlightIds = useMemo(() => {
-    if (selection?.type !== 'mission') return null;
-    const ids = tasks
-      .filter((t) => t.mission_id === selection.id && t.agent_id)
-      .map((t) => t.agent_id!);
-    return ids.length > 0 ? new Set(ids) : null;
-  }, [selection, tasks]);
+    if (selection?.type === 'mission') {
+      const ids = tasks
+        .filter((t) => t.mission_id === selection.id && t.agent_id)
+        .map((t) => t.agent_id!);
+      return ids.length > 0 ? new Set(ids) : null;
+    }
+    if (businessFilter) {
+      const ids = agents
+        .filter((a) => a.business_id === businessFilter || a.business_id === null)
+        .map((a) => a.id);
+      return ids.length > 0 ? new Set(ids) : null;
+    }
+    return null;
+  }, [selection, tasks, businessFilter, agents]);
 
   const hoveredAgent = agents.find((a) => a.id === hoveredAgentId) ?? null;
   const hoveredTask =

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
-import { resolveApproval } from '@/lib/workflows/approvals';
+import { ApprovalRefused, resolveApproval } from '@/lib/workflows/approvals';
 import { runMission } from '@/lib/workflows/runner';
 
 export const dynamic = 'force-dynamic';
@@ -52,6 +52,11 @@ export async function POST(
 
     return NextResponse.json({ approval: result.approval, run });
   } catch (error) {
+    // A rule refusing the decision is a conflict, not a server fault. The
+    // message is written for the operator, so it is passed through as-is.
+    if (error instanceof ApprovalRefused) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'The approval could not be resolved.' },
       { status: 500 },

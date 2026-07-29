@@ -41,13 +41,23 @@ export async function loadRelevantMemory(
   // audiences with different editorial rules; carrying insight across them
   // silently would be a quiet, hard-to-notice failure. Rows with no business
   // are agent-wide by construction and always apply.
-  const scoped =
+  const scoped = (
     agent.memory_access === 'agent'
       ? rows
-      : rows.filter((row) => row.business_id === null || row.business_id === businessId);
+      : rows.filter((row) => row.business_id === null || row.business_id === businessId)
+  ).filter(
+    // A memory awaiting approval must not shape a run. That is the whole point
+    // of the gate: a durable rule an agent wrote should not change the next
+    // mission before the operator has seen it. Archived memories are likewise
+    // kept for the record but no longer loaded.
+    (row) => row.status === 'active',
+  );
 
   return scoped
     .sort((a, b) => {
+      // Pinned first. A pinned memory is the operator saying "this always
+      // applies", which outranks the importance ordering.
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (b.importance !== a.importance) return b.importance - a.importance;
       return b.created_at.localeCompare(a.created_at);
     })

@@ -9,6 +9,7 @@ import { Metric, Panel, PanelHeader, ProgressBar } from '@/components/ui';
 import { AgentInspector } from '@/components/agents/AgentInspector';
 import { MissionInspector } from '@/components/missions/MissionInspector';
 import { ApprovalCard } from '@/components/approvals/ApprovalCard';
+import { DailyPanel } from '@/components/operations/DailyPanel';
 
 /**
  * The contextual panel. Default is the workforce overview; selecting a planet
@@ -38,13 +39,16 @@ export function RightPanel() {
       ) : mission ? (
         <MissionInspector mission={mission} onClose={() => select(null)} />
       ) : (
-        <WorkforceOverview />
+        <div className="scroll-thin flex-1 space-y-3 overflow-y-auto p-3">
+          <DailyPanel compact />
+          <WorkforceOverview embedded />
+        </div>
       )}
     </aside>
   );
 }
 
-export function WorkforceOverview() {
+export function WorkforceOverview({ embedded }: { embedded?: boolean } = {}) {
   const snapshot = useWorkforce((s) => s.snapshot);
   const select = useWorkforce((s) => s.select);
   const metrics = snapshot?.metrics;
@@ -55,7 +59,7 @@ export function WorkforceOverview() {
   const pending = (snapshot?.approvals ?? []).filter((a) => a.status === 'pending');
 
   return (
-    <div className="scroll-thin flex-1 space-y-3 overflow-y-auto p-3">
+    <div className={embedded ? 'space-y-3' : 'scroll-thin flex-1 space-y-3 overflow-y-auto p-3'}>
       <Panel>
         <PanelHeader title="Workforce overview" />
         <div className="grid grid-cols-2 gap-4 p-4">

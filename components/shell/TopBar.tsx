@@ -7,6 +7,7 @@ import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { formatRelativeTime } from '@/lib/utils';
 import { CommandBar } from './CommandBar';
 import { GlobalSearch } from './GlobalSearch';
+import { BusinessSwitcher } from './BusinessSwitcher';
 
 export function TopBar() {
   const notifications = useWorkforce((s) => s.snapshot?.notifications) ?? EMPTY;
@@ -26,6 +27,8 @@ export function TopBar() {
           Command Centre
         </span>
       </Link>
+
+      <BusinessSwitcher className="hidden shrink-0 lg:flex" />
 
       <div className="flex flex-1 justify-center px-1">
         <CommandBar />

@@ -81,19 +81,133 @@ export const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
 };
 
 /**
- * Findings that must never carry on to production on their own.
+ * How each verdict moves the pipeline.
  *
- * `INCORRECT` is a factual error about religion. `QUESTIONABLE` is a claim the
- * checker actively doubts. Both stop the pipeline and require a person.
- * `NEEDS_SOURCE` is deliberately *not* here: it is extremely common, it is a
- * request rather than a defect, and blocking on it would train the operator to
- * click through blocks — which is how a real error eventually gets waved past.
- * It is surfaced as an outstanding item on the approval instead.
+ * Three outcomes, not two. The distinction that matters is between a *defect*
+ * and an *unfinished job*: `INCORRECT` and `QUESTIONABLE` are the checker
+ * saying something is wrong, which stops everything; `NEEDS_SOURCE` is the
+ * checker saying it could not finish, which is a task for a person, not a
+ * failure. Collapsing those two into one state would either wave real errors
+ * through or make an ordinary missing citation look like a broken mission.
  */
+export const VERIFICATION_OUTCOMES = ['continue', 'note', 'resolve', 'block'] as const;
+export type VerificationOutcome = (typeof VERIFICATION_OUTCOMES)[number];
+
+export const STATUS_OUTCOMES: Record<VerificationStatus, VerificationOutcome> = {
+  VERIFIED: 'continue',
+  ACCEPTABLE_WITH_CONTEXT: 'note',
+  // Continues only when the script actually carries the context; checked in
+  // `missingDifferenceContext` rather than assumed.
+  DIFFERENCE_OF_OPINION: 'note',
+  NEEDS_SOURCE: 'resolve',
+  QUESTIONABLE: 'block',
+  INCORRECT: 'block',
+};
+
+export function outcomeOf(status: VerificationStatus): VerificationOutcome {
+  return STATUS_OUTCOMES[status];
+}
+
+/** Findings that are defects: the content is wrong and must not progress. */
 export const BLOCKING_STATUSES: VerificationStatus[] = ['INCORRECT', 'QUESTIONABLE'];
 
 export function isBlocking(status: VerificationStatus): boolean {
-  return BLOCKING_STATUSES.includes(status);
+  return outcomeOf(status) === 'block';
+}
+
+/** Findings that pause the mission for the operator to resolve or override. */
+export const RESOLUTION_STATUSES: VerificationStatus[] = ['NEEDS_SOURCE'];
+
+export function needsResolution(status: VerificationStatus): boolean {
+  return outcomeOf(status) === 'resolve';
+}
+
+/* ------------------------------------------------------------------ */
+/* Source resolution                                                   */
+/* ------------------------------------------------------------------ */
+
+export const RESOLUTION_ACTIONS = [
+  'add_source',
+  'research',
+  'edit_claim',
+  'remove_claim',
+  'override',
+] as const;
+export type ResolutionAction = (typeof RESOLUTION_ACTIONS)[number];
+
+export const RESOLUTION_ACTION_LABELS: Record<ResolutionAction, string> = {
+  add_source: 'Add source',
+  research: 'Ask Source Checker to research',
+  edit_claim: 'Edit claim',
+  remove_claim: 'Remove claim',
+  override: 'Override and continue',
+};
+
+/**
+ * One unsourced claim, and what the operator did about it.
+ *
+ * An override is a deliberate, attributable act: it records who, when and — if
+ * given — why, and it stays attached to the video through to the final QC
+ * report. A decision to publish something unverified should be visible at the
+ * moment of publishing, not buried in an audit log nobody opens.
+ */
+export interface SourceResolution {
+  id: UUID;
+  claim: string;
+  reason: string;
+  /** Whatever source was cited, if any. Null means nothing was offered. */
+  current_source: string | null;
+  location: string | null;
+  category: SourceCategory;
+  status: 'unresolved' | 'resolved' | 'overridden' | 'removed';
+  action: ResolutionAction | null;
+  /** The reference the operator supplied, or the checker found on a re-run. */
+  resolved_source: string | null;
+  /** Replacement wording, when the operator edited the claim. */
+  edited_claim: string | null;
+  override_reason: string | null;
+  resolved_by: UUID | null;
+  resolved_at: Timestamp | null;
+}
+
+export interface SourceResolutionRecord {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID;
+  source_check_id: UUID | null;
+  script_id: UUID | null;
+  video_id: UUID | null;
+  mission_id: UUID | null;
+  task_id: UUID | null;
+  approval_id: UUID | null;
+  items: SourceResolution[];
+  status: 'open' | 'resolved';
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/** Overrides that must be shown prominently wherever the video is approved. */
+export function overriddenItems(record: SourceResolutionRecord | null): SourceResolution[] {
+  return (record?.items ?? []).filter((item) => item.status === 'overridden');
+}
+
+export function unresolvedItems(record: SourceResolutionRecord | null): SourceResolution[] {
+  return (record?.items ?? []).filter((item) => item.status === 'unresolved');
+}
+
+/**
+ * A difference of opinion may only pass when the script actually says so.
+ *
+ * The checker reporting "scholars differ here" is not the same as the audience
+ * being told. This looks for the telling in the text, and returns the findings
+ * whose context is missing.
+ */
+const DIFFERENCE_CONTEXT =
+  /(scholars?\s+(differ|disagree|have\s+differed)|difference\s+of\s+opinion|opinions?\s+(differ|vary)|some\s+scholars?|according\s+to\s+(some|others)|there\s+is\s+(a\s+)?(disagreement|difference)|not\s+agreed\s+upon|ikhtilaf)/i;
+
+export function scriptCarriesDifferenceContext(scriptText: string): boolean {
+  return DIFFERENCE_CONTEXT.test(scriptText);
 }
 
 /* ------------------------------------------------------------------ */

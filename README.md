@@ -26,6 +26,7 @@ accounting.
 - [How it works](#how-it-works)
 - [Accounts, roles and access](#accounts-roles-and-access)
 - [Custom agents](#custom-agents)
+- [Daily operations](#daily-operations)
 - [The YouTube production pipeline](#the-youtube-production-pipeline)
 - [Islamic content](#islamic-content)
 - [Galaxy architecture](#galaxy-architecture)
@@ -81,9 +82,11 @@ URL and the anon key from Settings → API.
 ### 2. Run the migrations
 
 In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
-`0003_accounts_agents_islamic.sql`. Paste them into the SQL editor, or use
-`supabase db push`. Migration `0003` is what creates the owner role column, the
-role-immutability trigger and the Islamic tables.
+`0003_accounts_agents_islamic.sql`, `0004_operations.sql`. Paste them into the
+SQL editor, or use `supabase db push`. Migration `0003` creates the owner role
+column, the role-immutability trigger and the Islamic tables; `0004` adds
+mission priority and deadlines, memory provenance and the source resolution
+table.
 
 ### 3. Create your owner account — safely
 
@@ -175,8 +178,9 @@ displayed again.
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy the project URL and anon key into `.env.local`.
 3. Run the migrations, in order — `0001_initial_schema.sql`,
-   `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`. Either
-   paste them into the SQL editor, or use the Supabase CLI:
+   `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`,
+   `0004_operations.sql`. Either paste them into the SQL editor, or use the
+   Supabase CLI:
 
    ```bash
    supabase link --project-ref <your-ref>
@@ -190,6 +194,10 @@ displayed again.
 policies on every one. Tables that carry `owner_id` are restricted to
 `auth.uid()`; child tables inherit ownership through their parent business,
 agent, task or mission. A trigger creates a `profiles` row on sign-up.
+
+`0004` adds mission priority and optional deadlines, memory provenance/status/
+pinning for the memory approval gate, the `source_resolutions` table with its
+override audit trail, and the `source` and `memory` approval kinds.
 
 `0003` adds owner profiles (role, timezone, avatar), the columns
 operator-created agents need, the Islamic tables, and an RLS audit — see
@@ -497,6 +505,112 @@ An archived agent is never assigned new work and keeps every record it produced.
 
 ---
 
+## Daily operations
+
+The layer that makes this something you open every morning rather than a demo
+you show people. It answers six questions from real records: what is working,
+what is waiting, what needs you, what made money, what failed, and what to do
+next.
+
+### Needs you
+
+`lib/operations/needs-you.ts` aggregates every pending approval, every failed
+task, and every task with no agent that could ever run it. The rule it exists to
+keep: **the number in the panel is the number of things that genuinely need a
+person** — nothing invented to fill it, nothing left out. A panel that is wrong
+in either direction stops being trusted, and then the operator checks everything
+by hand anyway.
+
+Each entry says what the decision is in plain language, and what happens on
+approve and on reject. Approve/Reject appear inline where that is safe; a source
+gate and a spend gate deliberately do not get a one-click Approve, because both
+deserve reading.
+
+### Today
+
+Counted from records, and honest about gaps: `null` renders as `—`. A channel
+with no analytics connection has *unknown* views, not nought, and the difference
+matters when you are deciding whether something is working. Spend is always a
+real number, because we record it ourselves.
+
+### Work queue
+
+`/queue` — every task across every business in Now / Next / Waiting / Needs
+approval / Blocked / Done. The same state the galaxy shows, asked a different
+way. Oldest-first within each bucket, because the oldest queued item is the one
+most likely to be holding something up.
+
+### Daily briefing and recommendations
+
+Both run the Manager through `lib/agents/engine.ts` like any other agent — same
+authority checks, memory, Zod validation, cost tracking and logging. The page
+does not call a model; it creates a task.
+
+What keeps them honest is `lib/operations/digest.ts`: the Manager is handed a
+JSON digest of real state and told that anything not in it did not happen, that
+numbers must match, and that `null` means unknown rather than zero. The schemas
+give it nowhere to put a general impression — every recommendation must carry a
+reason, an impact and a concrete action, and an empty list with a note is an
+explicitly correct answer.
+
+### Agent workload and performance
+
+Workload is counted, not estimated: idle at 0 live tasks, light at 1, busy at
+2–4, overloaded at 5+, with the thresholds stated in one place. Performance
+shows completed, failed, success rate, average duration and cost — and says
+plainly that these describe whether the agent *ran*, not whether its output was
+good. Mixing operational metrics with content performance would let a busy agent
+look like an effective one.
+
+### Memory management
+
+Memory rows now record who wrote them. An agent-written rule and an
+operator-written rule read identically in a prompt but mean very different things
+when you are working out why an agent behaved as it did, so every row is badged
+`AI-generated memory` or `Owner memory`.
+
+Memories can be searched, pinned (loaded first), edited, and archived. Deleting
+is only offered for a memory nothing has used: once a memory has been loaded into
+a run it is part of why an agent produced what it produced, and removing it would
+quietly rewrite the explanation for work that already happened.
+
+**High-importance rules an agent writes need approval.** "Never use background
+music on this channel" silently rewrites every subsequent mission, so it lands
+`pending` and raises a memory approval — and `loadRelevantMemory` refuses to load
+anything pending. Deliberately narrow: gating every fact would produce a queue
+nobody reads, which is the same as no gate at all.
+
+### Mission priority and deadlines
+
+Priority is `low`/`normal`/`high`/`critical`, defaulting to normal — everything
+being high would mean nothing is. Deadlines are optional and **never inferred**;
+they exist only because the operator set one or their instruction named a date.
+
+Deadline status is deliberately crude and honest about it. There is no model of
+how long a step takes — steps depend on providers, approvals and the operator's
+own response time. So it answers only what state supports: has the date passed
+(`overdue`), is the mission stopped with the date close (`at risk`), or is it
+progressing (`on track`). It does not predict completion.
+
+### Business switching and filtering
+
+A switcher in the header filters the galaxy, queue, approvals and activity. It
+is a *view* filter and nothing more: what agents can actually see is decided by
+business assignment and memory scoping on the server. Filtering to a channel
+highlights its own agents plus the shared ones — shared agents genuinely work on
+it, and dimming them would suggest fewer hands than there are. No planet is
+duplicated or hidden.
+
+### Deployment safety
+
+Demo mode is correct locally and dangerous in public. `isPubliclyExposedDemo`
+shows a non-dismissible banner when there is no authentication, the build is
+production, and the host is not local — and stays quiet on localhost, so the
+banner that matters is never the one you have learned to ignore.
+`Settings → System status` states what every service actually is.
+
+---
+
 ## The YouTube production pipeline
 
 A faceless video goes from a topic to a finished, watchable file without a
@@ -634,14 +748,43 @@ The checker returns one status per finding: `VERIFIED`,
 `ACCEPTABLE_WITH_CONTEXT`, `DIFFERENCE_OF_OPINION`, `NEEDS_SOURCE`,
 `QUESTIONABLE`, `INCORRECT`.
 
-`INCORRECT` and `QUESTIONABLE` **stop the mission**. The verdict is computed
-from the findings rather than taken from the model, so a cheerful summary next
-to an `INCORRECT` finding cannot wave itself through.
+Three outcomes, not two. The distinction that matters is between a **defect**
+and an **unfinished job**:
 
-`NEEDS_SOURCE` deliberately does *not* block: it is a request rather than a
-defect, it is extremely common, and blocking on it would train the operator to
-click through blocks — which is how a real error eventually gets waved past. It
-is surfaced as an outstanding item instead.
+| Status | Outcome |
+| --- | --- |
+| `VERIFIED` | Continue |
+| `ACCEPTABLE_WITH_CONTEXT` | Continue with a note |
+| `DIFFERENCE_OF_OPINION` | Continue *only* when the script actually says scholars differ |
+| `NEEDS_SOURCE` | **Pause at a source resolution gate** |
+| `QUESTIONABLE` | Block |
+| `INCORRECT` | Block |
+
+`INCORRECT` and `QUESTIONABLE` are the checker saying something is *wrong*, and
+they stop everything. The verdict is computed from the findings rather than
+taken from the model, so a cheerful summary next to an `INCORRECT` finding
+cannot wave itself through.
+
+`NEEDS_SOURCE` is the checker saying it could not *finish* — which is a task for
+a person, not a failure. It pauses the mission at a resolution gate with five
+real actions per claim: add a source, ask the Source Checker to research it
+(a genuine task on a real agent), edit the claim, remove it, or override
+deliberately.
+
+**Override is a first-class, attributable act.** It records who, when and why,
+it notifies, and it stays attached to the video through to the final quality
+check — where it appears as a prominent warning at the moment of approval rather
+than buried in a log nobody opens. It does not fail the video: the operator
+already made that call on the record.
+
+The gate will not close while any claim is unresolved. Approving it wholesale
+would turn it into exactly the click-through it was designed to avoid, so every
+claim must be settled first — and overriding is one of the ways to settle one.
+
+Final QC for Islamic content reports Qur'an and hadith counts, unresolved
+claims, questionable and incorrect findings, differences of opinion, and every
+manual override. Unresolved `QUESTIONABLE` or `INCORRECT` findings fail it
+outright.
 
 ### The workflow
 
@@ -903,6 +1046,21 @@ Covers the parts where being wrong is expensive:
   a font that can shape it.
 - **Routing** — that Islamic instructions reach the Islamic channel and ordinary
   YouTube instructions do not.
+- **Needs-you aggregation** — that the count equals exactly the things that need
+  a person: pending approvals, failed tasks and tasks nobody can run, and not
+  resolved approvals, running tasks or failures in cancelled missions.
+- **Source resolution** — that NEEDS_SOURCE raises a gate rather than failing,
+  that the gate refuses to close with a claim unresolved, that an override
+  records who/when/why, and that overrides warn at QC while unresolved claims
+  fail it.
+- **Memory approval** — that durable agent-written rules gate and ordinary facts
+  do not, that a pending rule is never loaded into a run, that rejection
+  archives rather than deletes, and that pinned memories load first.
+- **Operations** — deterministic workload bands, today counting only today,
+  `null` for unknown rather than zero, deadline states that never predict, and
+  quick commands that name only things that exist.
+- **Deployment safety** — that the public-demo banner fires on a real deployment
+  with no authentication and stays quiet locally.
 
 ---
 
@@ -938,6 +1096,7 @@ components/
   layout/  ui/            Page chrome and primitives
 lib/
   auth/                   Roles, permissions, session and permission guards
+  operations/             Needs-you, today, workload, deadlines, digest, quick commands
   agents/                 Execution engine, capabilities, authority, memory, status
     production/           Voiceover, visual plan, assets, assembly, quality check
     islamic/              Sourced research and religious source verification
@@ -980,6 +1139,10 @@ The application was built in phases, and the architecture supports the rest:
 9. Owner accounts, custom agents and Islamic content — authentication, roles and
    RLS audit; the Agent Builder, templates and planet presets; sourced Islamic
    research, source verification, per-channel source policy and visual rules ✅
-10. Live platform data and scheduled automation — publishing, analytics and
+10. The daily operating layer — needs-you, today, work queue, Manager briefing
+    and recommendations, mission priority and deadlines, business creation and
+    switching, agent workload and memory management, and the Islamic source
+    resolution gate ✅
+11. Live platform data and scheduled automation — publishing, analytics and
     scheduling have interfaces and honest not-connected states, ready for
     adapters.

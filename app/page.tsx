@@ -8,6 +8,7 @@ import { RightPanel } from '@/components/shell/RightPanel';
 import { useWorkforce } from '@/lib/store/workforce';
 import { AgentInspector } from '@/components/agents/AgentInspector';
 import { MissionInspector } from '@/components/missions/MissionInspector';
+import { DailyPanel } from '@/components/operations/DailyPanel';
 
 /**
  * The universe. The galaxy is the primary interface; the strip above it and the
@@ -39,9 +40,17 @@ export default function UniversePage() {
           </p>
         )}
 
-        <div className="relative min-h-0 flex-1">
-          <Galaxy className="absolute inset-0" />
-          <MissionControl className="pointer-events-auto absolute left-4 top-4 hidden md:block" />
+        {/* On phones the operational panel comes first: the galaxy is lovely,
+            but the thing you opened the app to do is decide something. */}
+        <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-visible">
+          <div className="border-b border-[var(--color-edge)] p-3 lg:hidden">
+            <DailyPanel compact />
+          </div>
+
+          <div className="relative min-h-[420px] flex-1 lg:min-h-0">
+            <Galaxy className="absolute inset-0" />
+            <MissionControl className="pointer-events-auto absolute left-4 top-4 hidden md:block" />
+          </div>
         </div>
 
         <ActivityStream />

@@ -7,6 +7,8 @@ import { formatRelativeTime } from '@/lib/utils';
 import Link from 'next/link';
 import { Badge, Button, DemoNotice, inputClass } from '@/components/ui';
 import { formatMoneyPrecise } from '@/lib/utils';
+import { SourceResolution } from './SourceResolution';
+import { approvalOutcomes, explainApproval } from '@/lib/operations/needs-you';
 import type { Approval } from '@/types/domain';
 
 /**
@@ -87,6 +89,13 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
         {approval.summary}
       </p>
 
+      {/* What this decision actually does, in plain language. The operator
+          should never have to read a task payload to know what they are
+          agreeing to. */}
+      <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--color-ink-faint)]">
+        {explainApproval(approval)}
+      </p>
+
       <ApprovalDetail approval={approval} compact={compact} />
 
       {resolved ? (
@@ -119,6 +128,11 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
               {error}
             </p>
           )}
+
+          <p className="mt-2.5 text-[11px] leading-snug text-[var(--color-ink-faint)]">
+            Approve: {approvalOutcomes(approval.kind).approve} · Reject:{' '}
+            {approvalOutcomes(approval.kind).reject}
+          </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -194,6 +208,22 @@ function ApprovalDetail({ approval, compact }: { approval: Approval; compact?: b
           </Link>
         )}
       </div>
+    );
+  }
+
+  if (approval.kind === 'source' && typeof payload.resolution_id === 'string') {
+    const items = Array.isArray(payload.items)
+      ? (payload.items as {
+          id: string;
+          claim: string;
+          reason: string;
+          current_source: string | null;
+          location: string | null;
+          category: string;
+        }[])
+      : [];
+    return (
+      <SourceResolution resolutionId={payload.resolution_id as string} items={items} />
     );
   }
 
