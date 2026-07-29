@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { runMission } from '@/lib/workflows/runner';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +10,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('missions.create');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
 
   const mission = await store.get('missions', id);
   if (!mission || mission.owner_id !== ownerId) {

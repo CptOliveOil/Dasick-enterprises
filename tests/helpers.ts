@@ -1,4 +1,5 @@
 import { MemoryStore } from '@/lib/db/memory-store';
+import { newAgent } from '@/lib/agents/factory';
 import { uuid } from '@/lib/ids';
 import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
 import type { Agent, Business, PlanetVisual } from '@/types/domain';
@@ -17,34 +18,18 @@ const VISUAL: PlanetVisual = {
 };
 
 export function makeAgent(overrides: Partial<Agent> & { capabilities: string[] }): Agent {
-  const timestamp = new Date().toISOString();
-  return {
-    id: uuid(),
+  // Goes through the same factory the seed and the builder use, so a field
+  // added to Agent cannot be missing here and present everywhere else.
+  return newAgent({
     owner_id: OWNER_ID,
-    business_id: null,
     name: 'Test Agent',
     slug: `agent-${Math.random().toString(36).slice(2, 8)}`,
     role: 'Test',
-    description: '',
     system_prompt: 'You are a test agent.',
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-5',
-    temperature: 0.7,
     max_tokens: 2048,
-    status: 'idle',
-    authority_level: 1,
-    current_task_id: null,
     visual: VISUAL,
-    is_demo: false,
-    tasks_completed: 0,
-    tasks_failed: 0,
-    average_execution_time: 0,
-    estimated_total_cost: 0,
-    last_run_at: null,
-    created_at: timestamp,
-    updated_at: timestamp,
     ...overrides,
-  };
+  });
 }
 
 export function makeBusiness(overrides: Partial<Business> = {}): Business {
@@ -174,4 +159,63 @@ export async function makeProductionWorkspace() {
   });
 
   return { ...base, agents };
+}
+
+/**
+ * The production workforce plus a *second* YouTube business carrying its own
+ * Islamic agents.
+ *
+ * Two businesses rather than one is the whole point: it is what makes memory
+ * isolation, agent scoping and Manager routing testable rather than assumed.
+ */
+export async function makeIslamicWorkspace() {
+  const base = await makeProductionWorkspace();
+  const { store } = base;
+
+  const islamicBusiness = makeBusiness({
+    name: 'Islamic Channel',
+    slug: 'islamic-channel',
+    kind: 'youtube',
+    description: 'Sourced Islamic educational content.',
+    // Created later than the general channel, so `getWorkspace` still resolves
+    // the original one by default.
+    created_at: new Date(Date.now() + 1000).toISOString(),
+  });
+  await store.insert('businesses', islamicBusiness);
+
+  const islamicAgents = {
+    researcher: makeAgent({
+      name: 'Islamic Researcher',
+      slug: 'islamic-researcher',
+      business_id: islamicBusiness.id,
+      agent_type: 'research',
+      template_key: 'islamic_researcher',
+      capabilities: ['islamic.research', 'islamic.content_plan'],
+    }),
+    checker: makeAgent({
+      name: 'Islamic Source Checker',
+      slug: 'islamic-source-checker',
+      business_id: islamicBusiness.id,
+      agent_type: 'reviewer',
+      template_key: 'islamic_source_checker',
+      capabilities: ['islamic.source_verify', 'islamic.script_review'],
+    }),
+    // The production side of the Islamic channel reuses the same capabilities
+    // as every other channel — there is no second media pipeline.
+    writer: makeAgent({
+      name: 'Islamic Scriptwriter',
+      slug: 'islamic-scriptwriter',
+      business_id: islamicBusiness.id,
+      capabilities: ['youtube.script.write'],
+    }),
+    factChecker: makeAgent({
+      name: 'Islamic Fact Checker',
+      slug: 'islamic-fact-checker',
+      business_id: islamicBusiness.id,
+      capabilities: ['youtube.script.factcheck'],
+    }),
+  };
+  await store.insertMany('agents', Object.values(islamicAgents));
+
+  return { ...base, islamicBusiness, islamicAgents };
 }

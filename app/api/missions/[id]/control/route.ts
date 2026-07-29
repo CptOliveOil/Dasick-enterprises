@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { recomputeMission } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
 import { runAgent } from '@/lib/agents/engine';
@@ -31,7 +31,9 @@ export async function POST(
     return NextResponse.json({ error: 'Unknown control action.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('missions.create');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const mission = await store.get('missions', id);
   if (!mission || mission.owner_id !== ownerId) {
     return NextResponse.json({ error: 'Mission not found.' }, { status: 404 });

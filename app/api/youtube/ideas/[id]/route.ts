@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { logActivity } from '@/lib/agents/activity';
 import { createMission } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
@@ -24,7 +24,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid status.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('missions.create');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const idea = await store.get('youtube_ideas', id);
   if (!idea) return NextResponse.json({ error: 'Idea not found.' }, { status: 404 });
 

@@ -171,6 +171,152 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     updated_at: timestamp,
   },
   {
+    id: stableId('workflow:islamic_youtube_video'),
+    owner_id: null,
+    business_id: null,
+    key: 'islamic_youtube_video',
+    name: 'Islamic YouTube Video',
+    description:
+      'Sourced Islamic research, verified before a word is written and reviewed again after, then the ordinary production pipeline.',
+    steps: [
+      {
+        key: 'research',
+        title: 'Islamic research package',
+        capability: 'islamic.research',
+        depends_on: [],
+        requires_approval: false,
+      },
+      {
+        // Verification comes *before* the script, so a bad citation is caught
+        // while it is one line in a package rather than woven into narration
+        // that has already been recorded.
+        key: 'source_check',
+        title: 'Verify sources',
+        capability: 'islamic.source_verify',
+        depends_on: ['research'],
+        requires_approval: false,
+      },
+      {
+        key: 'script',
+        title: 'Write script',
+        capability: 'youtube.script.write',
+        depends_on: ['source_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'script_review',
+        title: 'Islamic script review',
+        capability: 'islamic.script_review',
+        depends_on: ['script'],
+        requires_approval: false,
+      },
+      {
+        key: 'fact_check',
+        title: 'Fact check',
+        capability: 'youtube.script.factcheck',
+        depends_on: ['script_review'],
+        // The same gate as every other video: nothing is produced and no money
+        // is spent until the operator has read the script.
+        requires_approval: true,
+        approval_label: 'Approve script',
+      },
+      // Everything below is the existing production pipeline, unchanged. There
+      // is no second media pipeline for Islamic content.
+      {
+        key: 'voiceover_plan',
+        title: 'Plan narration',
+        capability: 'youtube.voiceover.plan',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'voiceover',
+        title: 'Generate narration',
+        capability: 'youtube.voiceover.generate',
+        depends_on: ['voiceover_plan'],
+        requires_approval: false,
+      },
+      {
+        key: 'visual_plan',
+        title: 'Plan visuals',
+        capability: 'youtube.visual_plan',
+        depends_on: ['voiceover'],
+        requires_approval: false,
+      },
+      {
+        key: 'assets',
+        title: 'Source scene assets',
+        capability: 'youtube.asset_generate',
+        depends_on: ['visual_plan'],
+        requires_approval: false,
+      },
+      {
+        key: 'thumbnail_concepts',
+        title: 'Thumbnail concepts',
+        capability: 'youtube.thumbnail.concepts',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'thumbnail_images',
+        title: 'Render thumbnail candidates',
+        capability: 'youtube.thumbnail.generate',
+        depends_on: ['thumbnail_concepts'],
+        requires_approval: false,
+      },
+      {
+        key: 'metadata',
+        title: 'Write metadata',
+        capability: 'youtube.metadata',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'assembly',
+        title: 'Assemble video',
+        capability: 'youtube.video_assemble',
+        depends_on: ['assets', 'metadata'],
+        requires_approval: false,
+      },
+      {
+        key: 'quality_check',
+        title: 'Quality check',
+        capability: 'youtube.quality_check',
+        depends_on: ['assembly', 'thumbnail_images'],
+        requires_approval: false,
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  {
+    id: stableId('workflow:islamic_research'),
+    owner_id: null,
+    business_id: null,
+    key: 'islamic_research',
+    name: 'Islamic Research and Verification',
+    description: 'Research a topic and verify its sources, without producing a video.',
+    steps: [
+      {
+        key: 'research',
+        title: 'Islamic research package',
+        capability: 'islamic.research',
+        depends_on: [],
+        requires_approval: false,
+      },
+      {
+        key: 'source_check',
+        title: 'Verify sources',
+        capability: 'islamic.source_verify',
+        depends_on: ['research'],
+        requires_approval: true,
+        approval_label: 'Approve research package',
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  {
     id: stableId('workflow:youtube_ideas'),
     owner_id: null,
     business_id: null,

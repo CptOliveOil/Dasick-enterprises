@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { guardPermission } from '@/lib/auth/session';
 import { z } from 'zod';
 import { anthropicConfigured, isDemoMode } from '@/lib/config';
 import {
@@ -56,6 +57,10 @@ const testSchema = z.object({
 
 /** Test connection. Runs the provider's own cheapest round trip. */
 export async function POST(request: Request) {
+  // Testing a connection makes a real (if cheap) call against a provider using
+  // the server's credentials, so it needs the same permission as changing them.
+  const guard = await guardPermission('integrations.manage');
+  if ('response' in guard) return guard.response;
   const parsed = testSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: 'Unknown provider kind.' }, { status: 400 });

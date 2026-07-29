@@ -3,6 +3,7 @@ import { uuid } from '@/lib/ids';
 import type { StructuredSchema } from '@/lib/integrations/ai/types';
 import { newScene } from '@/lib/production/defaults';
 import { PRODUCTION_HANDLERS } from './production';
+import { ISLAMIC_HANDLERS } from './islamic';
 import { resolveVideo } from '@/lib/production/resolve';
 import { thumbnailPlanResponseSchema } from '@/schemas/production';
 import {
@@ -882,6 +883,7 @@ const seoKeywords: CapabilityHandler<z.infer<typeof keywordResponseSchema>> = {
 
 const HANDLERS: CapabilityHandler<never>[] = [
   ...PRODUCTION_HANDLERS,
+  ...ISLAMIC_HANDLERS,
   youtubeIdeas,
   youtubeResearch,
   youtubeScript,

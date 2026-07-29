@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { getWorkspace } from '@/lib/db/workspace';
 import { resolveSettings } from '@/lib/production/resolve';
 import { getBudget } from '@/lib/finance/budgets';
@@ -73,7 +74,9 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Invalid settings.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('budgets.manage');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const { business } = await getWorkspace('youtube');
   if (!business) {
     return NextResponse.json({ error: 'No YouTube business exists.' }, { status: 404 });

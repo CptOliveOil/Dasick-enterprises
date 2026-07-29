@@ -19,11 +19,15 @@ accounting.
 ## Contents
 
 - [Quick start](#quick-start)
+- [How to access Command Centre](#how-to-access-command-centre)
 - [Environment variables](#environment-variables)
 - [Supabase setup](#supabase-setup)
 - [Demo mode](#demo-mode)
 - [How it works](#how-it-works)
+- [Accounts, roles and access](#accounts-roles-and-access)
+- [Custom agents](#custom-agents)
 - [The YouTube production pipeline](#the-youtube-production-pipeline)
+- [Islamic content](#islamic-content)
 - [Galaxy architecture](#galaxy-architecture)
 - [Extending it](#extending-it)
 - [Testing](#testing)
@@ -44,8 +48,9 @@ npm run dev
 
 Open <http://localhost:3000>.
 
-With no configuration at all the application starts in **demo mode**: sixteen
-agents, four missions, live activity, approvals, finance — all seeded, all
+With no configuration at all the application starts in **demo mode**: eighteen
+agents across three businesses — a YouTube channel, an Etsy shop and an Islamic
+channel — with missions, live activity, approvals and finance, all seeded, all
 labelled `Demo`, and all genuinely functional. Type an instruction into the
 command bar and a real mission is planned, real tasks are created and real
 agents run — including a full YouTube video, rendered locally through ffmpeg to
@@ -59,6 +64,79 @@ npm start           # run the production build
 npm run typecheck   # tsc --noEmit
 npm test            # vitest
 ```
+
+---
+
+## How to access Command Centre
+
+Demo mode has no accounts, so a demo deployment is readable by anyone who finds
+the URL. To run this as your private workspace, do all seven steps — the first
+five are what turn authentication on.
+
+### 1. Configure Supabase
+
+Create a project at [supabase.com](https://supabase.com) and copy the project
+URL and the anon key from Settings → API.
+
+### 2. Run the migrations
+
+In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
+`0003_accounts_agents_islamic.sql`. Paste them into the SQL editor, or use
+`supabase db push`. Migration `0003` is what creates the owner role column, the
+role-immutability trigger and the Islamic tables.
+
+### 3. Create your owner account — safely
+
+The very first profile created on a fresh project becomes the **owner**; every
+account created after that arrives as a `viewer`. That ordering is the whole
+safety property, so create yours before anyone else can:
+
+1. In the Supabase dashboard, go to **Authentication → Users → Add user**,
+   enter your email and a password, and tick *Auto Confirm User*. Creating
+   yourself from the dashboard rather than a public sign-up form means there is
+   no window during which the sign-up endpoint is open and unclaimed.
+2. Then go to **Authentication → Providers → Email** and **turn off "Enable
+   sign-ups"**. Your account already exists; leaving sign-ups on lets a stranger
+   register against your project. They would land as a `viewer` and see nothing
+   they could change — but there is no reason to allow it at all.
+3. Confirm it worked: `select id, email, role from public.profiles;` should show
+   one row, with `role = 'owner'`.
+
+Roles cannot be changed from the browser — a database trigger rejects any update
+that alters `role`, so a compromised session cannot promote itself. To add a team
+member later, insert them and set their role with SQL.
+
+### 4. Configure environment variables
+
+At minimum `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Add
+`ANTHROPIC_API_KEY` for real agent output, and the media provider keys for real
+media. See [Environment variables](#environment-variables); everything is
+optional and nothing is faked when it is absent.
+
+### 5. Deploy
+
+Any platform that runs Next.js. On Vercel: import the repository, add the same
+environment variables, deploy. Agent runs are slow — the routes that invoke
+agents set `maxDuration = 300`.
+
+### 6. Visit the deployment URL
+
+Any unauthenticated request is redirected to `/login`; API routes return `401`
+rather than data. There is no page that renders your workspace to a signed-out
+visitor.
+
+### 7. Sign in
+
+Email and password. The session is stored in `httpOnly` cookies and refreshed on
+every request by the middleware, so signing in once on a phone, tablet, laptop
+and desktop keeps you signed in on all four. `/forgot-password` sends a
+single-use reset link through Supabase's email provider, which lands on
+`/reset-password` and signs every other device out when the password changes.
+
+Then Command Centre loads your private workspace: your galaxy, your agents, your
+missions, your finances. Nothing is shared, and — with RLS on every table —
+nothing is reachable by anyone else even if they hold a valid session of their
+own.
 
 ---
 
@@ -96,10 +174,9 @@ displayed again.
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy the project URL and anon key into `.env.local`.
-3. Run the migrations, in order. Either paste
-   `supabase/migrations/0001_initial_schema.sql` then
-   `supabase/migrations/0002_production_pipeline.sql` into the SQL editor, or
-   with the Supabase CLI:
+3. Run the migrations, in order — `0001_initial_schema.sql`,
+   `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`. Either
+   paste them into the SQL editor, or use the Supabase CLI:
 
    ```bash
    supabase link --project-ref <your-ref>
@@ -113,6 +190,10 @@ displayed again.
 policies on every one. Tables that carry `owner_id` are restricted to
 `auth.uid()`; child tables inherit ownership through their parent business,
 agent, task or mission. A trigger creates a `profiles` row on sign-up.
+
+`0003` adds owner profiles (role, timezone, avatar), the columns
+operator-created agents need, the Islamic tables, and an RLS audit — see
+[Accounts, roles and access](#accounts-roles-and-access).
 
 `0002` adds the production pipeline: `media_assets`, `youtube_voiceovers`,
 `youtube_timelines`, `provider_jobs`, `youtube_render_jobs`,
@@ -261,6 +342,161 @@ did Video #008 cost?" answerable rather than approximate.
 
 ---
 
+## Accounts, roles and access
+
+### Two modes, kept apart
+
+| | Demo mode | Real account mode |
+| --- | --- | --- |
+| Trigger | No Supabase credentials | Both Supabase variables set |
+| Storage | In-memory, reseeded on restart | Postgres with RLS |
+| Sign-in | None — `/login` says so | Required; `/` redirects when signed out |
+| Data | Every row carries `is_demo` | Never seeded |
+
+Demo mode is not a lesser build — it is the same application on a different
+storage driver, so local development never needs a database. It is also not
+private, and Settings → Security says so plainly on any instance running
+without Supabase.
+
+### Roles
+
+`lib/auth/permissions.ts` holds one table mapping role → permissions. Command
+Centre is single-owner today; the other three roles are defined and enforced so
+that adding a team member later is a data change rather than an audit of every
+route.
+
+| Role | Can |
+| --- | --- |
+| `owner` | Everything, including publishing and account/security settings |
+| `admin` | Everything except publishing and account settings |
+| `member` | Read the workspace and start missions |
+| `viewer` | Read only |
+
+Each role is a strict superset of the one below it, which is asserted in the
+tests so a future edit cannot accidentally give a viewer more than a member.
+
+### Where access is enforced
+
+Three layers, none of which is "the button is hidden":
+
+1. **Middleware** refreshes the session on every request and stops signed-out
+   traffic — a redirect for pages, a `401` for `/api/*`, so a `fetch` gets a
+   status it can act on rather than a page of HTML.
+2. **Route handlers** call `withPermission(...)` or `guardPermission(...)` from
+   `lib/auth/session.ts`. Both resolve the session and the role, and return
+   `403` rather than doing the work. A forgotten check is a crash in
+   development, not a silent hole.
+3. **Row Level Security** is the backstop. Queries run as the signed-in user, so
+   the *database* — not the application — is what stops one account reading
+   another's. Migration `0003` closed two gaps found while auditing `0001`:
+   `agent_memory` scoped only through its agent, so a row could name any
+   business (memory is the one table where a leak crosses straight into another
+   agent's prompt); and `task_dependencies` checked `task_id` but not
+   `depends_on_task_id`.
+
+Roles are additionally immutable from the client: a trigger rejects any update
+to `profiles.role`, so even a valid session cannot promote itself.
+
+### Account settings
+
+**Settings → Account** shows display name, email, timezone, currency, the role
+and exactly what it permits, and live session facts — sign-in method, last
+sign-in, expiry. **Settings → Security** shows the posture of the running server
+(storage, authentication, secret handling, simulation) and the password form.
+Neither page ever prints a token, key or session identifier; changing your
+password re-checks the current one first, because Supabase's `updateUser` does
+not, and a borrowed unlocked laptop should not be enough to lock you out of your
+own account.
+
+---
+
+## Custom agents
+
+Agents are not only seeded by developers. **Agents → Create agent** opens a
+builder that produces a real agent, with a real planet, running on the existing
+engine.
+
+### How templates work
+
+`lib/agents/templates.ts` holds starting points — YouTube Researcher,
+Scriptwriter, Fact Checker, SEO Analyst, Competitor Researcher, Islamic Content
+Researcher, Islamic Source Checker, and a blank Custom Agent. A template is
+**prefill only**: choosing one fills the form, every field stays editable, and
+what is saved is whatever was submitted. The server re-validates regardless of
+which template was chosen. No template arrives above authority level 2 — an
+agent that could spend or publish the moment it was created would be a trap.
+
+### How capabilities map to handlers
+
+A capability is a string that resolves to a handler in
+`lib/agents/capabilities.ts`. The builder's picker is generated from that
+registry (`lib/agents/catalogue.ts`), so it can only ever offer work the engine
+can execute — and `POST /api/agents` re-checks, because the form is not a
+security boundary. An agent carrying `totally.made.up` would fail every task it
+was ever given, so it is refused with that reason.
+
+Capabilities are grouped by prefix for display (YouTube, Islamic, Etsy,
+General). A capability whose prefix nobody claims still appears, under *Other* —
+adding a handler must never make it invisible to the builder.
+
+### How to add a developer-level capability
+
+1. Write a Zod schema in `schemas/`.
+2. Add a handler — `capability`, `label`, `schema`, `buildPrompt`, `persist` —
+   in `lib/agents/capabilities.ts` or a module registered from it.
+3. Register it in the `HANDLERS` array.
+
+It is now offered in the builder, assignable to any agent, usable in workflows
+and nameable by the Commander. The engine is not touched. A `provider`-mode
+handler implements `run()` instead of `buildPrompt`/`persist` — see
+[the engine](#the-agent-execution-engine).
+
+### How planets are created
+
+`lib/agents/presets.ts` offers curated colour, size, ring and symbol presets —
+not a colour picker. The galaxy is a designed system (gold is authority, greens
+and teals are research, violets are language, oranges are visual work, blues are
+production), and one free-form hex could destroy that legibility.
+
+Orbit, angle and speed are **not** chosen by the operator: they are derived from
+the agent's slot via a golden-angle spiral, so planets spread evenly however
+many there are and never stack. Editing an existing agent's colour keeps its
+orbit — a colour change should not teleport a planet across the galaxy. Status
+colour still comes from `agent.status`; appearance never fakes activity.
+
+### How authority works
+
+Unchanged: the level bounds what an agent may do unattended, and the
+always-gated actions stop regardless of level. The builder shows all five levels
+with what each means, and says plainly that spending, publishing, messaging and
+deleting always stop for approval.
+
+### How custom instructions work
+
+Stored on the agent and loaded into every run by the same engine, alongside the
+business context, the agent's memory, the task and any upstream step outputs.
+There is no second execution path for custom agents.
+
+**Memory access** is new and defaults to `business`: an agent sees memory
+recorded for the business it is currently working in, plus memory with no
+business attached. Two channels under one account are different audiences with
+different editorial rules, and carrying insight between them silently would be a
+quiet, hard-to-notice failure. `none` runs an agent stateless; `agent` opts into
+cross-business memory deliberately.
+
+### Editing, duplicating, archiving
+
+The agent page carries an Identity panel — name, role, business, type, memory
+access, capabilities, appearance — plus **Duplicate** (copies how it works, not
+what it has done; arrives disabled) and **Archive**.
+
+**There is no delete.** Tasks, activity logs, costs and approvals all reference
+an agent, so removing the row would leave missions whose history says "someone
+did this". `DELETE /api/agents/[id]` returns `405` and says to archive instead.
+An archived agent is never assigned new work and keeps every record it produced.
+
+---
+
 ## The YouTube production pipeline
 
 A faceless video goes from a topic to a finished, watchable file without a
@@ -351,6 +587,137 @@ handler.
 "Create 3 YouTube videos this week" creates **three separate missions**, each
 with its own tasks, approvals, budget and cost — not one mission producing three
 videos. The Manager Agent caps a single instruction at ten.
+
+---
+
+## Islamic content
+
+A specialised workforce for Islamic educational content, built on one premise:
+**a religious claim is only as good as where it came from.** Provenance is a
+first-class field everywhere, not an afterthought.
+
+### The agents
+
+| Template | Capabilities | Does |
+| --- | --- | --- |
+| Islamic Content Researcher | `islamic.research`, `islamic.content_plan` | Source-classified research packages and content plans |
+| Islamic Source Checker | `islamic.source_verify`, `islamic.script_review` | Verifies citations, gradings and attributed positions |
+
+Both run through `lib/agents/engine.ts` like every other agent — same authority
+checks, memory, cost tracking, logging and approvals.
+
+### Why nearly every field is nullable
+
+Every reference, grading source, Arabic text and attribution in
+`schemas/islamic.ts` is **nullable rather than optional**. A model asked for an
+optional field will usually invent one to look complete; a model given an
+explicit, legitimate way to say *"I do not reliably know this"* can take it. The
+prompts say plainly that `null` is the correct answer when unsure, because a
+null tells a human exactly what to check, while a plausible-looking citation
+that turns out to be wrong gets repeated by an audience as religion and cannot
+be taken back.
+
+Hadith grading is an enum that **includes `unknown`** and is **required**, so
+there is no way to return a hadith without saying something about its
+authenticity, and no way to imply authenticity by omission.
+
+### Source classification
+
+Every religious claim is categorised: `QURAN`, `SAHIH_HADITH`, `OTHER_HADITH`,
+`CLASSICAL_SCHOLAR`, `CONTEMPORARY_SCHOLAR`, `HISTORICAL_SOURCE`,
+`GENERAL_CONTEXT`, `UNVERIFIED`. `UNVERIFIED` is a real answer and preferable to
+a wrong one.
+
+### Verification, and what blocks
+
+The checker returns one status per finding: `VERIFIED`,
+`ACCEPTABLE_WITH_CONTEXT`, `DIFFERENCE_OF_OPINION`, `NEEDS_SOURCE`,
+`QUESTIONABLE`, `INCORRECT`.
+
+`INCORRECT` and `QUESTIONABLE` **stop the mission**. The verdict is computed
+from the findings rather than taken from the model, so a cheerful summary next
+to an `INCORRECT` finding cannot wave itself through.
+
+`NEEDS_SOURCE` deliberately does *not* block: it is a request rather than a
+defect, it is extremely common, and blocking on it would train the operator to
+click through blocks — which is how a real error eventually gets waved past. It
+is surfaced as an outstanding item instead.
+
+### The workflow
+
+```
+Idea → ISLAMIC RESEARCH → SOURCE VERIFICATION → Script → ISLAMIC SCRIPT REVIEW
+     → ▶ SCRIPT APPROVAL → Voiceover → Visual plan → Assets → Thumbnail
+     → Assembly → QC → ▶ FINAL APPROVAL
+```
+
+Verification runs **before** the script, so a bad citation is caught while it is
+one line in a package rather than woven into narration that has already been
+recorded. Everything after script approval is the existing production pipeline,
+unchanged — there is no second media pipeline.
+
+Script approval is additionally gated: when a channel requires a source check,
+`resolveApproval` refuses to approve a script that has none, or whose latest
+check blocked. Enforced at the point of approval rather than by workflow
+ordering, because an operator can approve from the approvals list, the galaxy or
+the API, and an ordering does not survive a re-run or a hand-made mission.
+
+### A channel of its own
+
+An Islamic channel is a separate business, with its own agents, missions,
+memory, analytics, videos, budget and visual style. When an account has more
+than one business of a kind, a switcher in the workspace header chooses which is
+in view (stored in an `httpOnly` cookie, validated against businesses you
+actually own). Memory scoping is what keeps them genuinely separate.
+
+### Source Policy
+
+**YouTube → Source Policy**, per channel. Every setting is a choice with a
+conservative default; **nothing encodes a madhhab, a school or a theological
+position** — the application does not hold one. What it does encode is sourcing
+discipline, which is a different thing.
+
+- Require a Qur'an reference wherever a verse is used
+- Require a grading on every hadith
+- Require a source check before script approval
+- Weak hadith: never / only with explicit labelling / allowed
+- Require differences of opinion to be labelled
+- Preferred Qur'an translation, Arabic display, methodology notes, disclaimer
+
+### Visual restrictions
+
+Per channel, and enforced twice. They reach the Visual Director and the Asset
+Agent as hard constraints in the prompt, **and** the plan that comes back is
+checked against them — a restriction that exists only as a request in a prompt
+is not a restriction. A violating plan is not saved at all, so the Asset Agent
+has nothing to pick up and no money is spent.
+
+Defaults: no depiction of Prophets, no depiction of the divine, no generated
+sacred text, calligraphy needs manual approval, faceless human depiction, no
+background music.
+
+### Arabic
+
+Diffusion models render Arabic as convincing-looking nonsense — the shapes are
+right, the letters are not — and a corrupted verse burned into a thumbnail is
+both wrong and unrecoverable once published. So **Arabic never travels through
+an image prompt.** `lib/islamic/arabic.ts` enforces that:
+
+- Arabic characters in an image or video prompt are a visual-rule violation.
+- Verified Arabic reaches the screen as *text*, from the structured record,
+  through the same libass layer the captions use — with a font stack that can
+  actually shape it, since the caption font has no Arabic coverage.
+- Evidence with `arabic: null` renders **nothing**. Null means the agent did not
+  reliably know the wording, and approximating it here would defeat the design.
+
+### Command routing
+
+The Manager routes to the Islamic specialists only when the subject matter is
+genuinely Islamic *and* an agent with the capability exists *and* a channel
+holds it. Any one of those missing falls back to the general routes: a Bronze
+Age documentary does not need a religious source check, and sending it through
+one would waste a step and pollute the Islamic channel's memory. This is
+asserted in the tests in both directions.
 
 ---
 
@@ -510,6 +877,32 @@ Covers the parts where being wrong is expensive:
   mission, names what is missing, and creates no voiceover asset.
 - **Budgets** — category ceilings that approval cannot override, thresholds that
   stop for the operator, and spend approvals that re-queue rather than complete.
+- **Roles and permissions** — that the owner has everything, that publishing and
+  account settings stay with the owner alone, that a viewer can change nothing,
+  and that each role is a strict superset of the one below.
+- **Agent creation** — that the factory fills every field, that slugs never
+  collide, that planets never share an orbit slot, and that a capability with no
+  handler is refused rather than producing an agent that fails every task.
+- **Templates** — that every template offers only real capabilities and none
+  arrives above drafting authority.
+- **Memory isolation** — that one channel's learned preferences never reach
+  another channel's prompt, and that archived agents are never assigned work.
+- **Islamic schemas** — that null is expressible for every reference, that a
+  hadith cannot be returned without a grading, and that the status enum is
+  closed.
+- **Source checking** — that INCORRECT and QUESTIONABLE block, that NEEDS_SOURCE
+  does not, and that the verdict is computed from the findings rather than taken
+  from the model.
+- **Approval gating** — that a channel requiring a source check refuses to
+  approve a script without one, refuses when the latest check blocked, and
+  allows once a later check passes.
+- **Visual restrictions** — that a prompt asking to depict a Prophet or to
+  generate Arabic is caught, that ordinary imagery is left alone, and that a
+  violating plan saves no scenes.
+- **Arabic** — that unverified wording renders nothing and verified wording gets
+  a font that can shape it.
+- **Routing** — that Islamic instructions reach the Islamic channel and ordinary
+  YouTube instructions do not.
 
 ---
 
@@ -520,6 +913,11 @@ Any platform that runs Next.js. On Vercel:
 1. Import the repository.
 2. Add the environment variables from `.env.example` that you are using.
 3. Deploy.
+
+**Do not deploy publicly without Supabase.** Without it the application runs in
+demo mode, which has no accounts — see
+[How to access Command Centre](#how-to-access-command-centre) for the seven
+steps, including creating your owner account before sign-ups are open.
 
 Agent runs can take a while. The API routes that invoke agents set
 `maxDuration = 300`; check that your plan allows it, or move long missions to a
@@ -539,8 +937,15 @@ components/
   agents/ missions/ approvals/ youtube/ etsy/
   layout/  ui/            Page chrome and primitives
 lib/
+  auth/                   Roles, permissions, session and permission guards
   agents/                 Execution engine, capabilities, authority, memory, status
     production/           Voiceover, visual plan, assets, assembly, quality check
+    islamic/              Sourced research and religious source verification
+    templates.ts          Agent Builder starting points
+    catalogue.ts          Capabilities grouped for the builder, from the registry
+    presets.ts            Curated planet appearance
+    factory.ts            The one place that knows an agent row's shape
+  islamic/                Source policy, visual rules, verified-Arabic rendering
   workflows/              Definitions, state machine, runner, approvals
   integrations/
     ai/                   AI providers
@@ -572,6 +977,9 @@ The application was built in phases, and the architecture supports the rest:
 8. End-to-end video production — voiceover, visual planning, asset generation,
    thumbnails, local ffmpeg assembly, quality checking, budgets and the job
    queue ✅
-9. Live platform data and scheduled automation — publishing, analytics and
-   scheduling have interfaces and honest not-connected states, ready for
-   adapters.
+9. Owner accounts, custom agents and Islamic content — authentication, roles and
+   RLS audit; the Agent Builder, templates and planet presets; sourced Islamic
+   research, source verification, per-channel source policy and visual rules ✅
+10. Live platform data and scheduled automation — publishing, analytics and
+    scheduling have interfaces and honest not-connected states, ready for
+    adapters.

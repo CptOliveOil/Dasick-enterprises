@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
+import type { DataStore } from '@/lib/db/tables';
 import { recordOperatorAction, runCapabilityTask } from '@/lib/production/actions';
 import { getYoutubeProvider } from '@/lib/integrations/platforms';
 import { resolveSettings } from '@/lib/production/resolve';
@@ -56,7 +57,9 @@ export async function POST(
     return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('content.publish');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const video = await store.get('youtube_videos', id);
   if (!video) return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
 
@@ -118,9 +121,9 @@ export async function POST(
  * it is never reported as published.
  */
 async function handlePublish(
-  store: Awaited<ReturnType<typeof getStore>>['store'],
+  store: DataStore,
   ownerId: string,
-  video: NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getStore>>['store']['get']>>> & {
+  video: {
     id: string;
     title: string;
     status: string;

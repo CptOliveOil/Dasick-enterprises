@@ -4,6 +4,7 @@ import { config, demoMode, supabaseConfigured } from '@/lib/config';
 import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations/registry';
 import { describeMediaProviders, simulationAllowed } from '@/lib/integrations/providers/registry';
 import { ProviderPanel } from '@/components/settings/ProviderPanel';
+import { SETTINGS_TABS } from '@/components/settings/tabs';
 import { AUTHORITY_DESCRIPTIONS } from '@/lib/agents/authority';
 import { Badge, Panel } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
@@ -42,6 +43,7 @@ export default async function SettingsPage() {
     <PageShell
       title="Settings"
       description="How this instance of Command Centre is actually configured."
+      tabs={SETTINGS_TABS}
       wide
     >
       <Section title="Profile">

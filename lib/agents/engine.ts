@@ -104,7 +104,7 @@ export async function runAgent(
       task: { ...task, status: 'running' },
       mission: task.mission_id ? await store.get('missions', task.mission_id) : null,
       business: task.business_id ? await store.get('businesses', task.business_id) : null,
-      memory: await loadRelevantMemory(store, agent),
+      memory: await loadRelevantMemory(store, agent, task.business_id ?? agent.business_id),
       previousOutputs: await loadPreviousOutputs(store, task.mission_id, task.id),
     };
 

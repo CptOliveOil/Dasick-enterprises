@@ -26,12 +26,27 @@ export interface RunContext {
 export async function loadRelevantMemory(
   store: DataStore,
   agent: Agent,
+  /** The business this run is for. Memory from other businesses is excluded. */
+  businessId: string | null = agent.business_id,
   limit = 12,
 ): Promise<AgentMemory[]> {
+  if (agent.memory_access === 'none') return [];
+
   const rows = await store.list('agent_memory', {
     where: { agent_id: agent.id },
   });
-  return rows
+
+  // `business` — the default — keeps one channel's learned preferences out of
+  // another's prompt. Two YouTube channels under one account are different
+  // audiences with different editorial rules; carrying insight across them
+  // silently would be a quiet, hard-to-notice failure. Rows with no business
+  // are agent-wide by construction and always apply.
+  const scoped =
+    agent.memory_access === 'agent'
+      ? rows
+      : rows.filter((row) => row.business_id === null || row.business_id === businessId);
+
+  return scoped
     .sort((a, b) => {
       if (b.importance !== a.importance) return b.importance - a.importance;
       return b.created_at.localeCompare(a.created_at);

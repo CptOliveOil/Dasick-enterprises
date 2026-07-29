@@ -44,6 +44,12 @@ import type {
   YoutubeTimeline,
   YoutubeVoiceover,
 } from '@/types/production';
+import type {
+  IslamicResearch,
+  IslamicSourceCheck,
+  SourcePolicy,
+  VisualRules,
+} from '@/types/islamic';
 
 /**
  * The single source of truth for which tables exist and what shape their rows
@@ -93,6 +99,10 @@ export interface Tables {
   provider_jobs: ProviderJob;
   production_budgets: ProductionBudget;
   production_settings: ProductionSettings;
+  islamic_research: IslamicResearch;
+  islamic_source_checks: IslamicSourceCheck;
+  source_policies: SourcePolicy;
+  visual_rules: VisualRules;
 }
 
 export type TableName = keyof Tables;

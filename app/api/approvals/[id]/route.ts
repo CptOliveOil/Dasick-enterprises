@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { resolveApproval } from '@/lib/workflows/approvals';
 import { runMission } from '@/lib/workflows/runner';
 
@@ -28,7 +28,9 @@ export async function POST(
     );
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('tasks.approve');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const existing = await store.get('approvals', id);
   if (!existing || existing.owner_id !== ownerId) {
     return NextResponse.json({ error: 'Approval not found.' }, { status: 404 });

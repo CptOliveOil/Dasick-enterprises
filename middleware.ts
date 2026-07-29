@@ -1,7 +1,16 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/auth'];
+/**
+ * The only paths an unauthenticated visitor may reach. Everything else —
+ * including every /api route — is behind the session check below, so no data
+ * endpoint is reachable without a session.
+ *
+ * /reset-password is public because the recovery session is created by
+ * /auth/callback moments before the page loads; the page itself refuses to do
+ * anything without that session.
+ */
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/auth'];
 
 /**
  * Refreshes the Supabase session on every request and keeps unauthenticated
@@ -40,6 +49,14 @@ export async function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
   if (!user && !isPublic) {
+    // An API call should get a status it can act on. Redirecting a `fetch` to
+    // the sign-in page just hands the caller a page of HTML and a 200.
+    if (path.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'Not signed in.' },
+        { status: 401, headers: { 'cache-control': 'no-store' } },
+      );
+    }
     const redirect = request.nextUrl.clone();
     redirect.pathname = '/login';
     redirect.searchParams.set('next', path);

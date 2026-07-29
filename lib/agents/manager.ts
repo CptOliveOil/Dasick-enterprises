@@ -3,7 +3,7 @@ import { uuid } from '@/lib/ids';
 import type { DataStore } from '@/lib/db/tables';
 import { getProvider, providerIsLive } from '@/lib/integrations/ai';
 import { managerPlanSchema, type ManagerPlan } from '@/schemas/manager';
-import type { Business, CommandMessage, Mission, Task } from '@/types/domain';
+import type { Agent, Business, CommandMessage, Mission, Task } from '@/types/domain';
 import { listCapabilities } from './capabilities';
 import { createMission, type PlannedStep } from '@/lib/workflows/engine';
 
@@ -70,8 +70,10 @@ export async function handleCommand(
     }
   }
 
+  const islamicBusinessSlug = findIslamicBusiness(businesses, agents);
+
   const valid = plan ? sanitisePlan(plan, available) : null;
-  const finalPlan = valid ?? routeLocally(trimmed, businesses, available);
+  const finalPlan = valid ?? routeLocally(trimmed, businesses, available, islamicBusinessSlug);
 
   if (!finalPlan) {
     const reply =
@@ -186,8 +188,13 @@ async function planWithModel(
     'Capabilities the workforce actually has. You may only use these:',
     ...capabilities.map((c) => `- ${c.capability}: ${c.label}`),
     '',
-    'Reusable workflows you may name in `workflow`: youtube_video_full (the complete faceless video pipeline — prefer this for "make a video"), youtube_ideas, youtube_script, youtube_video, etsy_product, channel_analysis. Use null when none fits.',
+    'Reusable workflows you may name in `workflow`: youtube_video_full (the complete faceless video pipeline — prefer this for "make a video"), islamic_youtube_video, islamic_research, youtube_ideas, youtube_script, youtube_video, etsy_product, channel_analysis. Use null when none fits.',
     'If the operator asks for several videos, set `repeat` to that number rather than adding more steps. Each repeat becomes its own mission.',
+    '',
+    'Islamic work:',
+    '- Use the islamic.* capabilities and the islamic_* workflows only when the subject matter is genuinely Islamic — Qur\'an, hadith, Seerah, fiqh, Islamic history, Ramadan, and so on.',
+    '- Do not route ordinary YouTube or Etsy work through them. A general history video does not need a religious source check, and sending it through one wastes a step and pollutes that channel\'s memory.',
+    '- When you do use them, set `business` to the slug of the channel whose agents hold those capabilities.',
     '',
     'Rules:',
     '- Every step must use a capability from the list above, verbatim.',
@@ -239,8 +246,30 @@ function sanitisePlan(plan: ManagerPlan, available: Set<string>): ManagerPlan | 
 
 interface Route {
   match: RegExp;
-  business: 'youtube' | 'etsy' | null;
+  /**
+   * `business` is a slug the plan should be scoped to. `businessKind` scopes to
+   * the first business of a kind whose workforce has the route's capabilities —
+   * used by the Islamic routes, which must land on whichever channel actually
+   * has Islamic agents rather than on a hard-coded slug.
+   */
+  business: string | null;
+  requiresCapability?: string;
   build: (instruction: string) => Omit<ManagerPlan, 'business' | 'repeat'>;
+}
+
+/**
+ * Words that indicate genuinely Islamic subject matter.
+ *
+ * Deliberately specific. Routing every YouTube task through the Islamic
+ * specialists would be worse than not having them: a history video would be
+ * slowed by a source check it does not need, and the Islamic agents' memory
+ * would fill with material from a channel they do not serve.
+ */
+const ISLAMIC_SUBJECT =
+  /\b(islam(ic|ically)?|muslim|qur['’]?an(ic)?|quran(ic)?|surah?|surat|ayah?|ayat|hadith|ahadith|sunnah|seerah|sirah|prophet\s+(muhammad|yusuf|musa|isa|ibrahim|nuh|adam|yunus|ayyub|sulaiman|dawud)|prophets?\b.*\bstor(y|ies)|sahaba|companions\s+of\s+the\s+prophet|salah|salat|prayer\s+in\s+islam|ramadan|ramadhan|eid|zakat|zakah|hajj|umrah|dhikr|du['’]?a|dua|tawakkul|taqwa|iman|fiqh|madhhab|madhab|sharia|shariah|tafsir|tajweed|khutbah|masjid|mosque|caliph|khalifa|scholar.*\b(islam|muslim)|allah)\b/i;
+
+function isIslamic(instruction: string): boolean {
+  return ISLAMIC_SUBJECT.test(instruction);
 }
 
 /** "Create 3 videos this week" → 3. Anything unbounded falls back to one. */
@@ -270,6 +299,103 @@ function n(instruction: string, fallback: number): number {
 }
 
 const ROUTES: Route[] = [
+  // Islamic routes come first, so an instruction that is clearly religious in
+  // subject reaches the specialists rather than falling into the general
+  // YouTube routes below. Each still requires the capability to exist.
+  {
+    match: /(check|verify|is\s+(the|this)).*(hadith|hadeeth|narration|ayah|verse|citation|source|authentic)/i,
+    business: null,
+    requiresCapability: 'islamic.source_verify',
+    build: (instruction) => ({
+      mission_title: 'Verify religious sources',
+      objective: `Check the religious sources in this material. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        'Mission created. The Islamic Source Checker is reviewing the citations, gradings and attributions now. Anything it marks incorrect or questionable stops there and comes to you.',
+      steps: [
+        {
+          capability: 'islamic.source_verify',
+          title: 'Verify religious sources',
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { instructions: instruction },
+        },
+      ],
+    }),
+  },
+  {
+    match: /(review|check).*(script|draft).*(islam|accuracy|religio)|islamic\s+(accuracy|review)/i,
+    business: null,
+    requiresCapability: 'islamic.script_review',
+    build: (instruction) => ({
+      mission_title: 'Islamic script review',
+      objective: `Review a script for Islamic accuracy. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        'Mission created. The Islamic Source Checker is reviewing the script for citation accuracy, hadith grading and attributed positions.',
+      steps: [
+        {
+          capability: 'islamic.script_review',
+          title: 'Review script for Islamic accuracy',
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { instructions: instruction },
+        },
+      ],
+    }),
+  },
+  {
+    // A full Islamic video: research and verification first, then the ordinary
+    // production pipeline.
+    match: /(create|make|produce|prepare|new|build).*(video|documentary|short)/i,
+    business: null,
+    requiresCapability: 'islamic.research',
+    build: (instruction) => ({
+      mission_title: `Islamic video${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Research, verify and produce an Islamic educational video. Instruction: "${instruction}"`,
+      workflow: 'islamic_youtube_video',
+      reply:
+        'Mission created on the Islamic channel. The Islamic Researcher builds a source-classified package, the Source Checker verifies it before anything is written, then the Scriptwriter drafts and the Source Checker reviews the script again. ' +
+        'I will stop for your approval on the script before any production work or spending begins — after that the existing production agents take it through to a rendered video and a final approval.',
+      steps: [],
+    }),
+  },
+  {
+    match: /(idea|topic|content plan|plan).*(islam|muslim|ramadan|quran|hadith|seerah|salah)|islamic.*(idea|content)/i,
+    business: null,
+    requiresCapability: 'islamic.content_plan',
+    build: (instruction) => ({
+      mission_title: 'Plan Islamic content',
+      objective: `Plan Islamic educational content. Instruction: "${instruction}"`,
+      workflow: null,
+      reply: `Mission created. The Islamic Researcher is planning ${n(instruction, 8)} ideas, each with the sourcing it will need and any sensitivities noted. They appear under Ideas.`,
+      steps: [
+        {
+          capability: 'islamic.content_plan',
+          title: `Plan ${n(instruction, 8)} Islamic content ideas`,
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { count: n(instruction, 8), instructions: instruction },
+        },
+      ],
+    }),
+  },
+  {
+    match: /(research|explain|about|study).*(islam|muslim|quran|qur'an|surah|ayah|hadith|seerah|prophet|ramadan|salah|dua|tawakkul|fiqh)/i,
+    business: null,
+    requiresCapability: 'islamic.research',
+    build: (instruction) => ({
+      mission_title: `Islamic research${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Research an Islamic topic and verify its sources. Instruction: "${instruction}"`,
+      workflow: 'islamic_research',
+      reply:
+        'Mission created. The Islamic Researcher is preparing a source-classified package, then the Source Checker verifies it and brings it to you for approval.',
+      steps: [],
+    }),
+  },
   {
     match: /(idea|opportunit|topic|niche).*(video|youtube)|(video|youtube).*(idea|opportunit|topic)/i,
     business: 'youtube',
@@ -392,15 +518,33 @@ function routeLocally(
   instruction: string,
   businesses: Business[],
   available: Set<string>,
+  islamicBusinessSlug: string | null,
 ): ManagerPlan | null {
-  const route = ROUTES.find((r) => r.match.test(instruction));
+  const islamic = isIslamic(instruction);
+
+  const route = ROUTES.find((candidate) => {
+    if (!candidate.match.test(instruction)) return false;
+    if (candidate.requiresCapability) {
+      // An Islamic route only applies when the subject really is Islamic *and*
+      // an agent exists that can do the work. Either alone is not enough: a
+      // general history video must not be slowed by a source check it does not
+      // need, and a route with no agent behind it would create a stalled
+      // mission.
+      if (!islamic) return false;
+      if (!available.has(candidate.requiresCapability)) return false;
+      if (!islamicBusinessSlug) return false;
+    }
+    return true;
+  });
   if (!route) return null;
 
   const built = route.build(instruction);
   const repeat = countVideos(instruction);
-  const business = route.business
-    ? (businesses.find((b) => b.slug === route.business)?.slug ?? null)
-    : null;
+  const business = route.requiresCapability
+    ? islamicBusinessSlug
+    : route.business
+      ? (businesses.find((b) => b.slug === route.business)?.slug ?? null)
+      : null;
 
   const plan: ManagerPlan = { ...built, business, repeat };
   if (plan.steps.length > 0) {
@@ -411,4 +555,24 @@ function routeLocally(
     return null;
   }
   return plan;
+}
+
+/**
+ * The business whose own workforce can do Islamic work.
+ *
+ * Resolved from the agents actually assigned to it, not from a name — the
+ * operator may call their channel anything, and an agent scoped to a different
+ * channel must not be borrowed for it.
+ */
+function findIslamicBusiness(businesses: Business[], agents: Agent[]): string | null {
+  const withIslamicAgents = businesses.find((business) =>
+    agents.some(
+      (agent) =>
+        agent.business_id === business.id &&
+        !agent.archived_at &&
+        agent.status !== 'disabled' &&
+        agent.capabilities.some((capability) => capability.startsWith('islamic.')),
+    ),
+  );
+  return withIslamicAgents?.slug ?? null;
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { uuid } from '@/lib/ids';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +10,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('agents.edit');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const agent = await store.get('agents', id);
   if (!agent || agent.owner_id !== ownerId) {
     return NextResponse.json({ error: 'Agent not found.' }, { status: 404 });
@@ -39,7 +41,9 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid memory record.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('agents.edit');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const agent = await store.get('agents', id);
   if (!agent || agent.owner_id !== ownerId) {
     return NextResponse.json({ error: 'Agent not found.' }, { status: 404 });

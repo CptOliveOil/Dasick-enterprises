@@ -1,4 +1,5 @@
 import { escapeAssText, toAssColour } from './ffmpeg';
+import { arabicAssStyles } from '@/lib/islamic/arabic';
 
 export interface CaptionCue {
   index: number;
@@ -110,6 +111,13 @@ export function toVtt(cues: CaptionCue[]): string {
   );
 }
 
+const ASS_STYLE_NAMES: Record<AssOverlay['style'], string> = {
+  caption: 'Caption',
+  title: 'Title',
+  arabic: 'Arabic',
+  arabicTranslation: 'ArabicTranslation',
+};
+
 function assTimestamp(seconds: number): string {
   const total = Math.max(0, seconds);
   const h = Math.floor(total / 3600);
@@ -122,7 +130,12 @@ export interface AssOverlay {
   start: number;
   end: number;
   text: string;
-  style: 'caption' | 'title';
+  /**
+   * `arabic` and `arabicTranslation` exist so verified scripture reaches the
+   * screen as text through libass, using a font that can shape it — never as
+   * pixels from an image model, which renders Arabic as convincing nonsense.
+   */
+  style: 'caption' | 'title' | 'arabic' | 'arabicTranslation';
 }
 
 /**
@@ -138,7 +151,7 @@ export function buildAss(
     .map(
       (overlay) =>
         `Dialogue: 0,${assTimestamp(overlay.start)},${assTimestamp(overlay.end)},${
-          overlay.style === 'title' ? 'Title' : 'Caption'
+          ASS_STYLE_NAMES[overlay.style]
         },,0,0,0,,${escapeAssText(overlay.text)}`,
     )
     .join('\n');
@@ -160,6 +173,9 @@ export function buildAss(
     // so they stay legible over any footage.
     `Style: Title,DejaVu Sans,${titleSize},${toAssColour(accent)},&H00101010,&H80000000,1,0,3,2,8,80,80,${Math.round(height * 0.08)},1`,
     `Style: Caption,DejaVu Sans,${captionSize},&H00FFFFFF,&H00101010,&HA0000000,0,0,3,1,2,120,120,${Math.round(height * 0.07)},1`,
+    // Arabic needs a font with Arabic coverage — DejaVu Sans has none, and text
+    // set in it renders as boxes.
+    ...arabicAssStyles(width, height),
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',

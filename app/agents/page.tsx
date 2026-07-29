@@ -6,7 +6,8 @@ import { agentStatusStyle } from '@/lib/agents/status';
 import { describeAuthority } from '@/lib/agents/authority';
 import { successRate } from '@/lib/finance/calculations';
 import { formatDuration, formatMoneyPrecise, formatRelativeTime } from '@/lib/utils';
-import { DemoNotice, StatusDot } from '@/components/ui';
+import { Button, DemoNotice, StatusDot } from '@/components/ui';
+import { Plus } from 'lucide-react';
 import { DataTable, PageShell } from '@/components/layout/PageShell';
 import type { Agent } from '@/types/domain';
 
@@ -24,6 +25,14 @@ export default function AgentsPage() {
       title="Agents"
       description="Every agent in the workforce. The galaxy is the primary way to work with them, but everything here is equivalent and keyboard-accessible."
       wide
+      actions={
+        <Link href="/agents/new">
+          <Button size="sm" variant="primary">
+            <Plus className="h-3.5 w-3.5" />
+            Create agent
+          </Button>
+        </Link>
+      }
     >
       <DataTable<Agent>
         rows={agents}

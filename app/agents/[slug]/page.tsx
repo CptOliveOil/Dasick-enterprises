@@ -3,9 +3,10 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { Save } from 'lucide-react';
-import { useWorkforce } from '@/lib/store/workforce';
+import { EMPTY, useWorkforce } from '@/lib/store/workforce';
 import { AUTHORITY_DESCRIPTIONS } from '@/lib/agents/authority';
 import { AgentInspector } from '@/components/agents/AgentInspector';
+import { AgentIdentity } from '@/components/agents/AgentIdentity';
 import { Button, EmptyState, Field, Panel, PanelHeader, inputClass } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
 import type { AuthorityLevel } from '@/types/domain';
@@ -18,6 +19,7 @@ export default function AgentPage() {
   );
   const loading = useWorkforce((s) => s.loading);
   const refresh = useWorkforce((s) => s.refresh);
+  const businesses = useWorkforce((s) => s.snapshot?.businesses) ?? EMPTY;
 
   const [prompt, setPrompt] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
@@ -74,6 +76,14 @@ export default function AgentPage() {
     <PageShell title={agent.name} description={agent.description} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div>
+          <Section title="Identity and capabilities">
+            <AgentIdentity
+              agent={agent}
+              businesses={businesses.map((b) => ({ id: b.id, name: b.name }))}
+              onSaved={refresh}
+            />
+          </Section>
+
           <Section title="Instructions">
             <Panel className="p-4">
               <Field

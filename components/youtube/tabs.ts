@@ -8,6 +8,7 @@ export const YOUTUBE_TABS = [
   { href: '/youtube/analytics', label: 'Analytics' },
   { href: '/youtube/competitors', label: 'Competitors' },
   { href: '/youtube/intelligence', label: 'Channel Intelligence' },
+  { href: '/youtube/source-policy', label: 'Source Policy' },
   { href: '/youtube/settings', label: 'Settings' },
 ];
 

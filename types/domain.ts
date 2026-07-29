@@ -13,7 +13,8 @@ export type Timestamp = string;
 /* ------------------------------------------------------------------ */
 
 /** Kind drives which workspace module a business renders. */
-export type BusinessKind = 'youtube' | 'etsy' | 'apps' | 'generic';
+export const BUSINESS_KINDS = ['youtube', 'etsy', 'apps', 'generic'] as const;
+export type BusinessKind = (typeof BUSINESS_KINDS)[number];
 
 export interface Business {
   id: UUID;
@@ -54,6 +55,34 @@ export type AuthorityLevel = (typeof AUTHORITY_LEVELS)[number];
 
 export type AIProviderId = 'anthropic' | 'openai' | 'google' | 'mock';
 
+/**
+ * Organisational category, used for grouping and for prefilling the builder.
+ * The engine does not read it — capabilities decide what an agent can do.
+ */
+export const AGENT_TYPES = [
+  'research',
+  'writer',
+  'reviewer',
+  'analyst',
+  'manager',
+  'production',
+  'finance',
+  'custom',
+] as const;
+export type AgentType = (typeof AGENT_TYPES)[number];
+
+/**
+ * How much of the agent's history reaches its prompt.
+ *
+ * `business` is the default and matches the original behaviour: memory is
+ * loaded for this agent, scoped to the business it is working in. `none` runs
+ * the agent stateless; `agent` lets it carry memory across businesses, which is
+ * deliberately not the default — one channel's learned preferences must not
+ * leak into another's.
+ */
+export const MEMORY_ACCESS_MODES = ['none', 'business', 'agent'] as const;
+export type MemoryAccess = (typeof MEMORY_ACCESS_MODES)[number];
+
 /** Purely visual configuration for an agent's planet. */
 export interface PlanetVisual {
   /** Base sphere colour. */
@@ -74,6 +103,11 @@ export interface PlanetVisual {
   ring?: boolean;
   /** Surface noise intensity, 0–1. */
   roughness: number;
+  /**
+   * Optional lucide icon name shown on list rows and the inspector. The galaxy
+   * itself stays iconless — a planet is a planet.
+   */
+  symbol?: string;
 }
 
 export interface Agent {
@@ -94,6 +128,20 @@ export interface Agent {
   current_task_id: UUID | null;
   /** Capability slugs the workflow engine matches tasks against. */
   capabilities: string[];
+  /** Organisational category. Not read by the engine. */
+  agent_type: AgentType;
+  /** How much history is loaded into this agent's prompt. */
+  memory_access: MemoryAccess;
+  /** Template this agent was created from, when it was. */
+  template_key: string | null;
+  /** True for agents the operator created, as opposed to seeded ones. */
+  is_custom: boolean;
+  /**
+   * Set when the agent is archived. Archived agents keep every task, cost and
+   * activity record — they are simply no longer assignable. Nothing deletes an
+   * agent, because that would orphan its history.
+   */
+  archived_at: Timestamp | null;
   visual: PlanetVisual;
   is_demo: boolean;
   tasks_completed: number;
@@ -851,10 +899,23 @@ export interface IntegrationConnection {
 /* Profile                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Roles exist so team support can be added later without a migration and
+ * without revisiting every permission check. Today an account has exactly one
+ * profile and it is the `owner`; the other three are defined, enforced and
+ * unused.
+ */
+export const ACCOUNT_ROLES = ['owner', 'admin', 'member', 'viewer'] as const;
+export type AccountRole = (typeof ACCOUNT_ROLES)[number];
+
 export interface Profile {
   id: UUID;
   email: string;
   display_name: string;
+  avatar_url: string | null;
+  role: AccountRole;
+  timezone: string;
   currency: string;
   created_at: Timestamp;
+  updated_at: Timestamp;
 }

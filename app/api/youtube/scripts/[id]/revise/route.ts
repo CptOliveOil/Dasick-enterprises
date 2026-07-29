@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { uuid } from '@/lib/ids';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { runAgent } from '@/lib/agents/engine';
 import { resolveAgentForCapability } from '@/lib/workflows/engine';
 import type { Task } from '@/types/domain';
@@ -28,7 +28,9 @@ export async function POST(
     return NextResponse.json({ error: 'Say what should change.' }, { status: 400 });
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('missions.create');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
   const script = await store.get('youtube_scripts', id);
   if (!script) return NextResponse.json({ error: 'Script not found.' }, { status: 404 });
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getStore } from '@/lib/db';
+import { guardPermission } from '@/lib/auth/session';
 import { handleCommand } from '@/lib/agents/manager';
 import { runMission } from '@/lib/workflows/runner';
 
@@ -22,7 +22,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const { store, ownerId } = await getStore();
+  const guard = await guardPermission('missions.create');
+  if ('response' in guard) return guard.response;
+  const { store, ownerId } = guard;
 
   try {
     const result = await handleCommand(store, ownerId, parsed.data.instruction);

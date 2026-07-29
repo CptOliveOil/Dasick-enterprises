@@ -11,6 +11,8 @@ import {
 import type { ProducedMedia } from '@/lib/integrations/providers/types';
 import { getJobQueue } from '@/lib/jobs/queue';
 import { checkSpend } from '@/lib/finance/budgets';
+import { islamicContext } from '@/lib/islamic/resolve';
+import { violatedVisualRules } from '@/lib/islamic/policy';
 import type { CapabilityHandler, PersistResult } from '@/lib/agents/capabilities';
 import type { YoutubeScene } from '@/types/domain';
 import type { AssetStrategy } from '@/types/production';
@@ -81,6 +83,23 @@ export const assetGenerate: CapabilityHandler = {
         summary: `found every scene already has an asset (${allScenes.length} scenes)`,
         output: { video_id: video.id, generated: 0, total: allScenes.length },
       };
+    }
+
+    // --- Channel visual rules, before anything is spent -------------------
+    // The Visual Director was given these as constraints and checked against
+    // them, but a scene can also be edited by hand after planning. Checking
+    // again here means no money is spent generating something the channel has
+    // said it will not use.
+    const { rules } = await islamicContext(ctx.store, ctx.ownerId, businessId);
+    if (rules) {
+      const violations = pending.flatMap((scene) => violatedVisualRules(scene, rules));
+      if (violations.length > 0) {
+        return blockProduction(
+          ctx,
+          video,
+          `Some scenes break this channel's visual rules, so nothing was generated. ${violations.slice(0, 3).join(' ')}`,
+        );
+      }
     }
 
     // --- Provider availability, before anything is attempted --------------

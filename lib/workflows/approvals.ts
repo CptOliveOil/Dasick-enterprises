@@ -40,6 +40,11 @@ export async function resolveApproval(
     throw new Error('That approval has already been resolved.');
   }
 
+  if (decision === 'approve') {
+    const blocked = await sourcePolicyBlock(store, ownerId, existing);
+    if (blocked) throw new Error(blocked);
+  }
+
   const timestamp = new Date().toISOString();
   const approval = await store.update('approvals', approvalId, {
     status: DECISION_STATUS[decision],
@@ -134,6 +139,44 @@ export async function resolveApproval(
     shouldContinue: decision !== 'reject',
     missionId: approval.mission_id,
   };
+}
+
+/**
+ * Refuses a script approval that the channel's source policy does not allow.
+ *
+ * When a channel has asked for a source check before script approval, that has
+ * to be enforced at the point of approval rather than merely hoped for in the
+ * workflow: an operator can approve from the approvals list, from the galaxy or
+ * from the API, and a workflow ordering does not survive a re-run or a manually
+ * created mission. Returns the reason, or null when the approval may proceed.
+ */
+async function sourcePolicyBlock(
+  store: DataStore,
+  ownerId: string,
+  approval: Approval,
+): Promise<string | null> {
+  if (approval.kind !== 'script') return null;
+  const scriptId =
+    typeof approval.payload.script_id === 'string' ? approval.payload.script_id : null;
+  if (!scriptId || !approval.business_id) return null;
+
+  const { usesIslamicWorkforce, getSourcePolicy } = await import('@/lib/islamic/resolve');
+  if (!(await usesIslamicWorkforce(store, ownerId, approval.business_id))) return null;
+
+  const policy = await getSourcePolicy(store, ownerId, approval.business_id);
+  if (!policy.require_source_check_before_script_approval) return null;
+
+  const checks = await store.list('islamic_source_checks', { where: { script_id: scriptId } });
+  if (checks.length === 0) {
+    return 'This channel requires an Islamic source check before a script can be approved, and none has been run for this script. Run the Islamic Source Checker first, or turn the requirement off in Source Policy.';
+  }
+  const latest = checks.reduce((newest, check) =>
+    check.created_at > newest.created_at ? check : newest,
+  );
+  if (latest.verdict === 'blocked') {
+    return `The Islamic Source Checker blocked this script: ${latest.summary} Resolve the flagged sources and re-run the check before approving.`;
+  }
+  return null;
 }
 
 /**

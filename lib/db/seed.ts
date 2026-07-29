@@ -1,4 +1,6 @@
 import { stableId } from '@/lib/ids';
+import { newAgent } from '@/lib/agents/factory';
+import { getTemplate } from '@/lib/agents/templates';
 import type { DataStore } from './tables';
 import type {
   ActivityLog,
@@ -34,6 +36,11 @@ import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations
 
 export const DEMO_OWNER_ID = stableId('owner:demo');
 
+// The seeded Islamic agents and the builder templates must say exactly the same
+// thing, so the seed reads the template rather than repeating the prompt.
+const ISLAMIC_RESEARCHER_PROMPT = getTemplate('islamic_researcher')!.system_prompt;
+const ISLAMIC_CHECKER_PROMPT = getTemplate('islamic_source_checker')!.system_prompt;
+
 const now = () => new Date().toISOString();
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
@@ -41,6 +48,7 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString
 export const BUSINESS_IDS = {
   youtube: stableId('business:youtube'),
   etsy: stableId('business:etsy'),
+  islamic: stableId('business:islamic'),
 };
 
 export const AGENT_IDS = {
@@ -60,6 +68,8 @@ export const AGENT_IDS = {
   visualDirector: stableId('agent:visual-director'),
   assetAgent: stableId('agent:asset'),
   qualityControl: stableId('agent:quality-control'),
+  islamicResearcher: stableId('agent:islamic-researcher'),
+  islamicSourceChecker: stableId('agent:islamic-source-checker'),
 };
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +104,23 @@ function businesses(): Business[] {
       created_at: daysAgo(60),
       updated_at: now(),
     },
+    {
+      // A second YouTube business, not a variant of the first. Its agents,
+      // memory, analytics, videos and budget are its own — an Islamic channel
+      // must not inherit a history channel's learned preferences.
+      id: BUSINESS_IDS.islamic,
+      owner_id: DEMO_OWNER_ID,
+      name: 'Islamic Channel',
+      slug: 'islamic-channel',
+      kind: 'youtube',
+      description:
+        'Sourced Islamic educational content — Seerah, stories of the Prophets, Qur\u2019an study and Islamic history.',
+      colour: '#0f766e',
+      currency: 'GBP',
+      is_demo: true,
+      created_at: daysAgo(30),
+      updated_at: now(),
+    },
   ];
 }
 
@@ -110,6 +137,9 @@ interface AgentSeed {
   system_prompt: string;
   business: keyof typeof BUSINESS_IDS | null;
   capabilities: string[];
+  agent_type: Agent['agent_type'];
+  /** Set when this seeded agent corresponds to a builder template. */
+  template_key?: string;
   authority_level: Agent['authority_level'];
   status: Agent['status'];
   visual: Agent['visual'];
@@ -130,6 +160,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.commander,
     name: 'Commander',
     slug: 'commander',
+    agent_type: 'manager',
     role: 'Manager Agent',
     description:
       'Orchestrates the entire workforce. Turns instructions into missions, picks agents, sequences work and escalates approvals.',
@@ -158,6 +189,8 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.youtubeResearcher,
     name: 'YouTube Researcher',
     slug: 'youtube-researcher',
+    agent_type: 'research',
+    template_key: 'youtube_researcher',
     role: 'Opportunity Research',
     description:
       'Finds niches, trends and video opportunities, and scores them for demand, competition and monetisation.',
@@ -186,6 +219,8 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.scriptwriter,
     name: 'Scriptwriter',
     slug: 'scriptwriter',
+    agent_type: 'writer',
+    template_key: 'scriptwriter',
     role: 'Long-form Scripting',
     description:
       'Writes structured documentary scripts with hooks, pattern interrupts and a payoff.',
@@ -214,6 +249,8 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.factChecker,
     name: 'Fact Checker',
     slug: 'fact-checker',
+    agent_type: 'reviewer',
+    template_key: 'fact_checker',
     role: 'Verification',
     description:
       'Inspects every factual claim in a script and blocks progression when something is likely wrong.',
@@ -242,6 +279,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.thumbnail,
     name: 'Thumbnail Strategist',
     slug: 'thumbnail-strategist',
+    agent_type: 'production',
     role: 'Titles & Thumbnails',
     description:
       'Generates thumbnail concepts and alternative titles, and compares combinations for click potential.',
@@ -270,6 +308,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.videoProducer,
     name: 'Video Producer',
     slug: 'video-producer',
+    agent_type: 'production',
     role: 'Production Planning',
     description:
       'Turns an approved script into a scene-by-scene production plan with asset briefs.',
@@ -298,6 +337,8 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.youtubeAnalyst,
     name: 'YouTube Analyst',
     slug: 'youtube-analyst',
+    agent_type: 'analyst',
+    template_key: 'competitor_researcher',
     role: 'Channel Performance',
     description:
       'Analyses historical performance to learn what actually works on the channel.',
@@ -326,6 +367,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.etsyResearcher,
     name: 'Etsy Researcher',
     slug: 'etsy-researcher',
+    agent_type: 'research',
     role: 'Product Opportunity',
     description:
       'Finds digital product opportunities and scores them for demand, competition and profit.',
@@ -354,6 +396,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.etsyListing,
     name: 'Etsy Listing Agent',
     slug: 'etsy-listing',
+    agent_type: 'writer',
     role: 'Listing Optimisation',
     description:
       'Writes optimised listings — titles, descriptions, tags and image briefs.',
@@ -382,6 +425,8 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.seo,
     name: 'SEO Agent',
     slug: 'seo',
+    agent_type: 'analyst',
+    template_key: 'seo_analyst',
     role: 'Keywords & Discoverability',
     description:
       'Researches keywords and discoverability across YouTube and Etsy.',
@@ -411,6 +456,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.finance,
     name: 'Finance Agent',
     slug: 'finance',
+    agent_type: 'finance',
     role: 'Revenue & Cost',
     description:
       'Tracks revenue, expenses, AI spend and profitability across every business.',
@@ -439,6 +485,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.voiceover,
     name: 'Voiceover Agent',
     slug: 'voiceover',
+    agent_type: 'production',
     role: 'Narration',
     description:
       'Prepares narration from the approved script and generates the audio through the connected voice provider.',
@@ -467,6 +514,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.visualDirector,
     name: 'Visual Director',
     slug: 'visual-director',
+    agent_type: 'production',
     role: 'Scene Planning',
     description:
       'Turns the approved script into a scene-by-scene visual plan, choosing the cheapest strategy that still works.',
@@ -495,6 +543,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.assetAgent,
     name: 'Asset Agent',
     slug: 'asset',
+    agent_type: 'production',
     role: 'Asset Sourcing',
     description:
       'Obtains the visual for every scene — generating, fetching or composing it — within the production budget.',
@@ -523,6 +572,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.qualityControl,
     name: 'Quality Control',
     slug: 'quality-control',
+    agent_type: 'reviewer',
     role: 'Final Review',
     description:
       'Inspects the finished package — render, assets, captions, metadata — and blocks anything not fit to publish.',
@@ -551,6 +601,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     id: AGENT_IDS.automation,
     name: 'Automation Agent',
     slug: 'automation',
+    agent_type: 'custom',
     role: 'Recurring Workflows',
     description:
       'Runs recurring workflows and keeps the system tidy. Currently offline.',
@@ -575,36 +626,101 @@ const AGENT_SEEDS: AgentSeed[] = [
     average_execution_time: 5100,
     estimated_total_cost: 1.2,
   },
+  {
+    // Both Islamic agents belong to the Islamic Channel, not to the general
+    // YouTube business. That is the point: their memory, and the analytics they
+    // learn from, stay with the channel they serve.
+    id: AGENT_IDS.islamicResearcher,
+    name: 'Islamic Researcher',
+    slug: 'islamic-researcher',
+    agent_type: 'research',
+    template_key: 'islamic_researcher',
+    role: 'Sourced Islamic Research',
+    description:
+      'Researches Islamic topics and prepares source-classified content packages. Never invents scripture, hadith, gradings or rulings.',
+    system_prompt: ISLAMIC_RESEARCHER_PROMPT,
+    business: 'islamic',
+    capabilities: ['islamic.research', 'islamic.content_plan'],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      colour: '#0f766e',
+      atmosphere: '#5eead4',
+      radius: 0.64,
+      orbit: 6.4,
+      angle: 2.35,
+      speed: 0.032,
+      inclination: 0.12,
+      roughness: 0.42,
+      symbol: 'BookOpen',
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
+  },
+  {
+    id: AGENT_IDS.islamicSourceChecker,
+    name: 'Islamic Source Checker',
+    slug: 'islamic-source-checker',
+    agent_type: 'reviewer',
+    template_key: 'islamic_source_checker',
+    role: 'Religious Source Verification',
+    description:
+      'Reviews religious content for citation accuracy, hadith grading and attributed positions before it reaches an audience.',
+    system_prompt: ISLAMIC_CHECKER_PROMPT,
+    business: 'islamic',
+    capabilities: ['islamic.source_verify', 'islamic.script_review'],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      colour: '#0d9488',
+      atmosphere: '#99f6e4',
+      radius: 0.5,
+      orbit: 7.3,
+      angle: 4.1,
+      speed: 0.027,
+      inclination: -0.1,
+      roughness: 0.4,
+      ring: true,
+      symbol: 'Scale',
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
+  },
 ];
 
 function agents(): Agent[] {
-  return AGENT_SEEDS.map((seed) => ({
-    id: seed.id,
-    owner_id: DEMO_OWNER_ID,
-    business_id: seed.business ? BUSINESS_IDS[seed.business] : null,
-    name: seed.name,
-    slug: seed.slug,
-    role: seed.role,
-    description: seed.description,
-    system_prompt: seed.system_prompt,
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-5',
-    temperature: 0.7,
-    max_tokens: 4096,
-    status: seed.status,
-    authority_level: seed.authority_level,
-    current_task_id: null,
-    capabilities: seed.capabilities,
-    visual: seed.visual,
-    is_demo: true,
-    tasks_completed: seed.tasks_completed,
-    tasks_failed: seed.tasks_failed,
-    average_execution_time: seed.average_execution_time,
-    estimated_total_cost: seed.estimated_total_cost,
-    last_run_at: minutesAgo(3 + Math.floor(Math.random() * 90)),
-    created_at: daysAgo(90),
-    updated_at: now(),
-  }));
+  return AGENT_SEEDS.map((seed) =>
+    newAgent({
+      id: seed.id,
+      owner_id: DEMO_OWNER_ID,
+      business_id: seed.business ? BUSINESS_IDS[seed.business] : null,
+      name: seed.name,
+      slug: seed.slug,
+      role: seed.role,
+      description: seed.description,
+      system_prompt: seed.system_prompt,
+      status: seed.status,
+      authority_level: seed.authority_level,
+      capabilities: seed.capabilities,
+      agent_type: seed.agent_type,
+      template_key: seed.template_key ?? null,
+      // Seeded agents are the built-in workforce, not operator creations.
+      is_custom: false,
+      visual: seed.visual,
+      is_demo: true,
+      tasks_completed: seed.tasks_completed,
+      tasks_failed: seed.tasks_failed,
+      average_execution_time: seed.average_execution_time,
+      estimated_total_cost: seed.estimated_total_cost,
+      last_run_at: minutesAgo(3 + Math.floor(Math.random() * 90)),
+      created_at: daysAgo(90),
+      updated_at: now(),
+    }),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1966,9 +2082,13 @@ function profile(): Profile {
   return {
     id: DEMO_OWNER_ID,
     email: 'demo@commandcentre.local',
-    display_name: 'Operator',
+    display_name: 'Demo Operator',
+    avatar_url: null,
+    role: 'owner',
+    timezone: 'Europe/London',
     currency: 'GBP',
     created_at: daysAgo(90),
+    updated_at: now(),
   };
 }
 

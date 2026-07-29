@@ -6,6 +6,8 @@ import type { CapabilityHandler } from '@/lib/agents/capabilities';
 import type { YoutubeScene } from '@/types/domain';
 import { resolveScript, resolveSettings, resolveVideo, setStage } from './context';
 import { baseProductionContext } from './prompt';
+import { islamicContext } from '@/lib/islamic/resolve';
+import { renderVisualRules, violatedVisualRules } from '@/lib/islamic/policy';
 
 /**
  * Turns the approved script into a scene-by-scene visual plan.
@@ -24,6 +26,15 @@ export const visualPlan: CapabilityHandler<z.infer<typeof visualPlanResponseSche
     const script = await resolveScript(ctx);
     if (!script) throw new Error('No approved script was found to plan visuals for.');
 
+    // Channel visual restrictions reach the Visual Director as constraints, and
+    // are checked again after the plan comes back.
+    const { rules } = await islamicContext(
+      ctx.store,
+      ctx.ownerId,
+      ctx.business?.id ?? ctx.task.business_id,
+    );
+    const constraints = renderVisualRules(rules);
+
     const voiceovers = await ctx.store.list('youtube_voiceovers', {
       where: { script_id: script.id },
     });
@@ -33,6 +44,8 @@ export const visualPlan: CapabilityHandler<z.infer<typeof visualPlanResponseSche
     return [
       baseProductionContext(ctx),
       '',
+      constraints,
+      constraints ? '' : '',
       `Plan the visuals for "${script.title}".`,
       measured
         ? `The narration audio is ${Math.round(measured)} seconds long. Your scene durations must add up to approximately that, not to an arbitrary figure.`
@@ -62,7 +75,12 @@ export const visualPlan: CapabilityHandler<z.infer<typeof visualPlanResponseSche
       '- `on_screen_text` is optional and should be short. Leave it empty when the narration is enough.',
       '- `importance` marks which scenes deserve the spend: 5 for the shot the video needs, 1 for filler.',
       '- Explain your cost choices in `strategy_rationale`.',
-    ].join('\n');
+      constraints
+        ? '- The visual constraints above override every other instruction here. A scene that breaks one is rejected and the plan has to be redone.'
+        : '',
+    ]
+      .filter((part) => part !== '')
+      .join('\n');
   },
 
   async persist(ctx, data) {
@@ -70,6 +88,37 @@ export const visualPlan: CapabilityHandler<z.infer<typeof visualPlanResponseSche
     if (!video) throw new Error('No video record exists to attach scenes to.');
     const businessId = ctx.business?.id ?? ctx.task.business_id ?? '';
     const settings = await resolveSettings(ctx.store, ctx.ownerId, businessId);
+    const { rules } = await islamicContext(ctx.store, ctx.ownerId, businessId);
+
+    // The constraints were in the prompt; this is the check that they were
+    // followed. A restriction that exists only as a request in a prompt is not
+    // a restriction, and this is the difference between the two.
+    const violations = data.scenes.flatMap((scene) =>
+      violatedVisualRules(
+        {
+          scene_number: scene.scene_number,
+          image_prompt: scene.image_prompt,
+          video_prompt: scene.video_prompt,
+          visual_direction: scene.visual_description,
+          on_screen_text: scene.on_screen_text,
+        },
+        rules,
+      ),
+    );
+
+    if (violations.length > 0) {
+      // Nothing is written. A plan that breaks the channel's visual rules must
+      // not leave scenes behind for the Asset Agent to pick up.
+      return {
+        summary: `produced a plan that breaks ${violations.length} visual rule${violations.length === 1 ? '' : 's'}`,
+        output: { video_id: video.id, violations, scene_count: 0 },
+        blocked:
+          `The visual plan breaks this channel's visual rules and was not saved. ${violations.slice(0, 3).join(' ')}`.slice(
+            0,
+            600,
+          ),
+      };
+    }
 
     // Replanning replaces the previous plan rather than accumulating scenes.
     const existing = await ctx.store.list('youtube_scenes', { where: { video_id: video.id } });

@@ -53,7 +53,12 @@ async function nextMissionNumber(store: DataStore, ownerId: string): Promise<num
 
 /**
  * Picks the agent for a capability: prefer one scoped to this business, fall
- * back to a global agent. Disabled and offline agents are never selected.
+ * back to a global agent. Disabled, offline and archived agents are never
+ * selected.
+ *
+ * Business scoping is what keeps two channels apart. An Islamic Channel with
+ * its own researcher gets that researcher; a general YouTube mission does not,
+ * because that agent is not scoped to it.
  */
 export async function resolveAgentForCapability(
   store: DataStore,
@@ -66,7 +71,8 @@ export async function resolveAgentForCapability(
     (a) =>
       a.capabilities.includes(capability) &&
       a.status !== 'disabled' &&
-      a.status !== 'offline',
+      a.status !== 'offline' &&
+      !a.archived_at,
   );
   if (eligible.length === 0) return null;
   const scoped = eligible.find((a) => a.business_id === businessId);

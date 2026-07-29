@@ -4,6 +4,7 @@ import { uuid } from '@/lib/ids';
 import { timelineSchema } from '@/schemas/production';
 import { assetLocalPath, createMediaAsset } from '@/lib/media/assets';
 import { buildAss, buildCues, toSrt, toVtt, type AssOverlay } from '@/lib/media/captions';
+import { containsArabic } from '@/lib/islamic/arabic';
 import { probeMedia, readOutput, withTempDir } from '@/lib/media/ffmpeg';
 import { getVideoRenderer } from '@/lib/integrations/providers/registry';
 import { getJobQueue } from '@/lib/jobs/queue';
@@ -240,8 +241,12 @@ export const videoAssemble: CapabilityHandler = {
                 overlays.push({
                   start: item.start,
                   end: Math.min(item.end, item.start + 4.5),
+                  // Arabic gets the Arabic style, which names fonts that can
+                  // shape it. This is the only route by which Arabic reaches
+                  // the screen: it is drawn from the stored text through
+                  // libass, never generated as pixels by an image model.
                   text: item.text_overlay,
-                  style: 'title',
+                  style: containsArabic(item.text_overlay) ? 'arabic' : 'title',
                 });
               }
             }
