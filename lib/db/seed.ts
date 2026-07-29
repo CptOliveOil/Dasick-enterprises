@@ -28,6 +28,8 @@ import type {
   YoutubeVideo,
 } from '@/types/domain';
 import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
+import { newVideo } from '@/lib/production/defaults';
+import type { ProductionStage } from '@/types/production';
 import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations/registry';
 
 export const DEMO_OWNER_ID = stableId('owner:demo');
@@ -54,6 +56,10 @@ export const AGENT_IDS = {
   seo: stableId('agent:seo'),
   finance: stableId('agent:finance'),
   automation: stableId('agent:automation'),
+  voiceover: stableId('agent:voiceover'),
+  visualDirector: stableId('agent:visual-director'),
+  assetAgent: stableId('agent:asset'),
+  qualityControl: stableId('agent:quality-control'),
 };
 
 /* ------------------------------------------------------------------ */
@@ -242,7 +248,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a thumbnail and title strategist for documentary YouTube channels. You design for clarity at small sizes: one subject, one emotion, minimal text. You explain the reasoning behind each concept rather than describing an image in the abstract. You avoid clickbait that the video cannot pay off.',
     business: 'youtube',
-    capabilities: ['youtube.thumbnail.concepts'],
+    capabilities: ['youtube.thumbnail.concepts', 'youtube.thumbnail.generate'],
     authority_level: 1,
     status: 'needs_approval',
     visual: {
@@ -270,7 +276,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a video production planner. You break an approved script into scenes with narration, visual direction, b-roll search queries and generation prompts. You keep scenes between eight and twenty-five seconds. You never claim an asset exists — every asset starts as pending until a provider produces it.',
     business: 'youtube',
-    capabilities: ['youtube.production.plan'],
+    capabilities: ['youtube.production.plan', 'youtube.video_assemble'],
     authority_level: 1,
     status: 'working',
     visual: {
@@ -382,7 +388,7 @@ const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a search and discoverability specialist working across YouTube and Etsy. You research keyword demand, intent and competition. You never fabricate search volumes — where you do not have data, you give a qualitative band and say it is an estimate.',
     business: null,
-    capabilities: ['seo.keywords'],
+    capabilities: ['seo.keywords', 'youtube.metadata'],
     authority_level: 1,
     status: 'idle',
     visual: {
@@ -428,6 +434,118 @@ const AGENT_SEEDS: AgentSeed[] = [
     tasks_failed: 0,
     average_execution_time: 6600,
     estimated_total_cost: 4.85,
+  },
+  {
+    id: AGENT_IDS.voiceover,
+    name: 'Voiceover Agent',
+    slug: 'voiceover',
+    role: 'Narration',
+    description:
+      'Prepares narration from the approved script and generates the audio through the connected voice provider.',
+    system_prompt:
+      'You prepare narration for faceless documentary videos. You take an approved script and turn it into speakable segments: you fix punctuation for delivery, expand numerals and abbreviations into spoken words, and mark where the delivery should slow or pause. You never rewrite the content, add claims, or remove qualifications the fact checker required. You do not synthesise audio yourself — you prepare what will be spoken.',
+    business: 'youtube',
+    capabilities: ['youtube.voiceover.plan', 'youtube.voiceover.generate'],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      colour: '#f472b6',
+      atmosphere: '#fbcfe8',
+      radius: 0.72,
+      orbit: 5.8,
+      angle: 1.55,
+      speed: 0.036,
+      inclination: 0.14,
+      roughness: 0.46,
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
+  },
+  {
+    id: AGENT_IDS.visualDirector,
+    name: 'Visual Director',
+    slug: 'visual-director',
+    role: 'Scene Planning',
+    description:
+      'Turns the approved script into a scene-by-scene visual plan, choosing the cheapest strategy that still works.',
+    system_prompt:
+      'You are a visual director for faceless documentary videos. You turn narration into scenes, each with one clear visual idea. You are deliberately frugal: most scenes want a generated still or a stock shot, and generated video is reserved for the few moments where motion carries meaning. You never request imagery of a recognisable real person, a copyrighted character, or anything you could not lawfully use. You say plainly when a scene would be better as on-screen text than as an image.',
+    business: 'youtube',
+    capabilities: ['youtube.visual_plan'],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      colour: '#c084fc',
+      atmosphere: '#e9d5ff',
+      radius: 0.66,
+      orbit: 7.9,
+      angle: 3.35,
+      speed: 0.025,
+      inclination: -0.26,
+      roughness: 0.54,
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
+  },
+  {
+    id: AGENT_IDS.assetAgent,
+    name: 'Asset Agent',
+    slug: 'asset',
+    role: 'Asset Sourcing',
+    description:
+      'Obtains the visual for every scene — generating, fetching or composing it — within the production budget.',
+    system_prompt:
+      'You source the visual assets a scene plan calls for. You work strictly within the configured budget and concurrency, you never spend past a ceiling, and when a provider is unavailable you stop and say which one rather than substituting something else.',
+    business: 'youtube',
+    capabilities: ['youtube.asset_generate'],
+    authority_level: 2,
+    status: 'idle',
+    visual: {
+      colour: '#22d3ee',
+      atmosphere: '#a5f3fc',
+      radius: 0.7,
+      orbit: 9.2,
+      angle: 0.75,
+      speed: 0.021,
+      inclination: 0.2,
+      roughness: 0.6,
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
+  },
+  {
+    id: AGENT_IDS.qualityControl,
+    name: 'Quality Control',
+    slug: 'quality-control',
+    role: 'Final Review',
+    description:
+      'Inspects the finished package — render, assets, captions, metadata — and blocks anything not fit to publish.',
+    system_prompt:
+      'You are the last check before a video reaches the operator. You are given measurements taken from the rendered file and structural facts about the package. You judge only what those facts support, you never speculate about picture quality you cannot see, and you would rather raise a warning that turns out to be minor than let a broken video through. Every issue you raise must come with something the operator can actually do.',
+    business: 'youtube',
+    capabilities: ['youtube.quality_check'],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      colour: '#fb7185',
+      atmosphere: '#fecdd3',
+      radius: 0.58,
+      orbit: 10.1,
+      angle: 5.15,
+      speed: 0.018,
+      inclination: -0.16,
+      roughness: 0.44,
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
   },
   {
     id: AGENT_IDS.automation,
@@ -1387,58 +1505,75 @@ function youtubeVideos(): YoutubeVideo[] {
     [7, 'The Computer That Was 1,400 Years Too Early', 'awaiting_approval', 2],
     [8, 'The Year Civilisation Almost Ended: 1177 BC', 'research', 0],
   ];
-  return rows.map(([number, title, status, days]) => ({
-    id: stableId(`video:${String(number).padStart(3, '0')}`),
-    business_id: BUSINESS_IDS.youtube,
-    channel_id: CHANNEL_ID,
-    idea_id: null,
-    script_id: number === 7 ? stableId('script:007') : null,
-    mission_id: number === 8 ? MISSION_IDS.video008 : number === 7 ? MISSION_IDS.video007 : null,
-    number,
-    title,
-    status,
-    alternative_titles: [],
-    selected_thumbnail_id: null,
-    publish_at: status === 'published' ? daysAgo(days) : null,
-    is_demo: true,
-    created_at: daysAgo(days + 10),
-    updated_at: daysAgo(days),
-  }));
+  const stageFor: Record<string, ProductionStage> = {
+    published: 'publish',
+    production: 'assets',
+    awaiting_approval: 'script_approval',
+    research: 'research',
+  };
+  return rows.map(([number, title, status, days]) =>
+    newVideo({
+      id: stableId(`video:${String(number).padStart(3, '0')}`),
+      business_id: BUSINESS_IDS.youtube,
+      channel_id: CHANNEL_ID,
+      script_id: number === 7 ? stableId('script:007') : null,
+      mission_id:
+        number === 8 ? MISSION_IDS.video008 : number === 7 ? MISSION_IDS.video007 : null,
+      number,
+      title,
+      status,
+      stage: stageFor[status] ?? 'ideas',
+      publish_at: status === 'published' ? daysAgo(days) : null,
+      estimated_cost: status === 'published' ? 9.4 : 0,
+      actual_cost: status === 'published' ? 9.4 : 0,
+      is_demo: true,
+      created_at: daysAgo(days + 10),
+      updated_at: daysAgo(days),
+    }),
+  );
 }
 
 function thumbnailConcepts(): ThumbnailConcept[] {
   const seeds = [
     {
+      title: 'The object alone',
       subject: 'The corroded main fragment, lit from one side',
       composition: 'Object hard right, negative space left for text',
       text: 'TOO EARLY',
       emotion: 'Unease',
-      colour: 'Warm bronze against near-black',
-      reasoning: 'The object is unfamiliar enough to create a question by itself. Two words keeps it legible at small sizes.',
+      contrast: 'Warm bronze against near-black, single key light',
+      psychology: 'The object is unfamiliar enough to create a question by itself.',
+      confidence: 0.82,
     },
     {
+      title: 'Exploded gearing',
       subject: 'Exploded diagram of the gear train',
       composition: 'Centred, radial symmetry',
       text: '2,000 YEARS',
       emotion: 'Curiosity',
-      colour: 'Cyan schematic lines on charcoal',
-      reasoning: 'Signals that the video explains mechanism rather than retelling the discovery story.',
+      contrast: 'Cyan schematic lines on charcoal',
+      psychology: 'Signals the video explains mechanism rather than retelling the discovery.',
+      confidence: 0.74,
     },
     {
+      title: 'The wreck',
       subject: 'Diver silhouette against a shaft of light, wreck below',
       composition: 'Vertical thirds, subject lower left',
       text: 'THE WRECK',
       emotion: 'Awe',
-      colour: 'Deep teal with a single warm highlight',
-      reasoning: 'Highest emotional pull, but risks promising an underwater documentary the video is not.',
+      contrast: 'Deep teal with a single warm highlight',
+      psychology: 'Highest emotional pull, but risks promising an underwater documentary.',
+      confidence: 0.61,
     },
     {
+      title: 'Then and now',
       subject: 'Split frame: bronze gear beside a modern watch movement',
       composition: 'Hard vertical split',
       text: 'SAME IDEA',
       emotion: 'Recognition',
-      colour: 'Bronze against steel',
-      reasoning: 'The comparison does the explaining before a word is read.',
+      contrast: 'Bronze against steel, equal luminance either side',
+      psychology: 'The comparison does the explaining before a word is read.',
+      confidence: 0.79,
     },
   ];
   return seeds.map((s, i) => ({
@@ -1446,14 +1581,21 @@ function thumbnailConcepts(): ThumbnailConcept[] {
     business_id: BUSINESS_IDS.youtube,
     video_id: stableId('video:007'),
     script_id: stableId('script:007'),
+    concept_title: s.title,
     visual_description: `${s.subject}. ${s.composition}.`,
     subject: s.subject,
-    background: s.colour,
+    background: s.contrast,
     composition: s.composition,
     text: s.text,
     emotion: s.emotion,
-    colour_direction: s.colour,
-    reasoning: s.reasoning,
+    colour_direction: s.contrast,
+    contrast_strategy: s.contrast,
+    click_psychology: s.psychology,
+    image_prompt: `${s.subject}, ${s.composition}, ${s.contrast}, cinematic documentary still, no text`,
+    confidence: s.confidence,
+    reasoning: s.psychology,
+    asset_id: null,
+    selected: false,
     is_demo: true,
     created_at: minutesAgo(40 - i),
   }));

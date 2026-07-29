@@ -1,57 +1,63 @@
+import Link from 'next/link';
 import { getWorkspace } from '@/lib/db/workspace';
-import {
-  getImageProvider,
-  getVideoProvider,
-  getVoiceProvider,
-} from '@/lib/integrations/media';
-import { Badge, EmptyState, Panel } from '@/components/ui';
+import { describeMediaProviders } from '@/lib/integrations/providers/registry';
+import { formatMoneyPrecise, formatRelativeTime } from '@/lib/utils';
+import { Badge, EmptyState, Panel, ProgressBar } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
 import { YOUTUBE_TABS } from '@/components/youtube/tabs';
 import { NoBusiness } from '@/components/youtube/NoBusiness';
+import { PRODUCTION_STAGE_LABELS } from '@/types/production';
 
 export const dynamic = 'force-dynamic';
 
+/** Everything currently in production, and what each provider can actually do. */
 export default async function YoutubeProductionPage() {
   const { store, business } = await getWorkspace('youtube');
   if (!business) return <NoBusiness tabs={YOUTUBE_TABS} title="YouTube" />;
 
-  const videos = await store.list('youtube_videos', { where: { business_id: business.id } });
-  const scenes = await store.list('youtube_scenes');
-  const concepts = await store.list('youtube_thumbnail_concepts', {
-    where: { business_id: business.id },
-  });
+  const [videos, scenes, assets] = await Promise.all([
+    store.list('youtube_videos', { where: { business_id: business.id } }),
+    store.list('youtube_scenes'),
+    store.list('media_assets', { where: { business_id: business.id } }),
+  ]);
 
-  const inProduction = videos.filter((v) =>
-    ['production', 'thumbnail', 'awaiting_approval', 'ready'].includes(v.status),
-  );
+  const inProduction = videos
+    .filter((v) => !['published', 'idea'].includes(v.status))
+    .sort((a, b) => b.number - a.number);
 
-  // Connection state is read from the server, never assumed.
-  const providers = [
-    { label: 'Voice', connected: getVoiceProvider().connected, env: 'VOICE_PROVIDER_API_KEY' },
-    { label: 'Image', connected: getImageProvider().connected, env: 'IMAGE_PROVIDER_API_KEY' },
-    { label: 'Video', connected: getVideoProvider().connected, env: 'VIDEO_PROVIDER_API_KEY' },
-  ];
+  const providers = describeMediaProviders();
 
   return (
     <PageShell
       title="Production"
-      description="Scene-by-scene plans and thumbnail concepts. Assets stay pending until a generation provider actually produces them."
+      description="Videos moving through the production pipeline, and the providers that make them."
       tabs={YOUTUBE_TABS}
       wide
     >
-      <Section title="Generation providers">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <Section title="Providers">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {providers.map((provider) => (
-            <Panel key={provider.label} className="p-3.5">
-              <p className="flex items-center justify-between text-[13px]">
-                {provider.label}
-                <Badge tone={provider.connected ? 'emerald' : 'neutral'}>
-                  {provider.connected ? 'Connected' : 'Not connected'}
+            <Panel key={provider.kind} className="p-3.5">
+              <p className="flex items-center justify-between gap-2 text-[13px] capitalize">
+                {provider.kind}
+                <Badge
+                  tone={
+                    provider.simulated ? 'amber' : provider.connected ? 'emerald' : 'neutral'
+                  }
+                >
+                  {provider.simulated
+                    ? 'Simulated'
+                    : provider.connected
+                      ? 'Connected'
+                      : 'Not connected'}
                 </Badge>
               </p>
-              {!provider.connected && (
-                <p className="mt-1.5 text-[11px] leading-snug text-[var(--color-ink-faint)]">
-                  Set {provider.env} and register an adapter in lib/integrations/media.ts.
+              <p className="mt-1 truncate text-[11px] text-[var(--color-ink-faint)]">
+                {provider.name}
+              </p>
+              {!provider.connected && provider.requiredEnv.length > 0 && (
+                <p className="mt-1.5 text-[10px] leading-snug text-[var(--color-ink-faint)]">
+                  Set {provider.requiredEnv.join(', ')}
                 </p>
               )}
             </Panel>
@@ -59,97 +65,91 @@ export default async function YoutubeProductionPage() {
         </div>
       </Section>
 
-      <Section title="Thumbnail concepts">
-        {concepts.length === 0 ? (
-          <Panel>
-            <EmptyState title="No thumbnail concepts yet" />
-          </Panel>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {concepts.map((concept) => (
-              <Panel key={concept.id} className="p-4">
-                <p className="text-[15px] font-semibold tracking-tight">{concept.text}</p>
-                <p className="mt-2 text-[12px] leading-snug text-[var(--color-ink-muted)]">
-                  {concept.subject}
-                </p>
-                <dl className="mt-3 space-y-1 border-t border-[var(--color-edge-soft)] pt-3 text-[11px]">
-                  <Row label="Composition" value={concept.composition} />
-                  <Row label="Emotion" value={concept.emotion} />
-                  <Row label="Colour" value={concept.colour_direction} />
-                </dl>
-                <p className="mt-2.5 text-[11px] leading-snug text-[var(--color-ink-faint)]">
-                  {concept.reasoning}
-                </p>
-              </Panel>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      <Section title="Production plans">
+      <Section title={`In production · ${inProduction.length}`}>
         {inProduction.length === 0 ? (
           <Panel>
             <EmptyState
               title="Nothing in production"
-              detail="A production plan is created once a script passes its fact check and is approved."
+              detail="Approve a script and the production pipeline takes over from there."
             />
           </Panel>
         ) : (
-          inProduction.map((video) => {
-            const videoScenes = scenes
-              .filter((s) => s.video_id === video.id)
-              .sort((a, b) => a.scene_number - b.scene_number);
-            return (
-              <Panel key={video.id} className="mb-3 overflow-hidden">
-                <div className="flex items-center gap-3 border-b border-[var(--color-edge-soft)] px-4 py-3">
-                  <span className="font-mono text-[11px] text-amber-400">
-                    #{String(video.number).padStart(3, '0')}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[14px]">{video.title}</span>
-                  <Badge>{videoScenes.length} scenes</Badge>
-                </div>
-                {videoScenes.length === 0 ? (
-                  <p className="px-4 py-5 text-center text-[13px] text-[var(--color-ink-faint)]">
-                    No scene plan generated yet.
-                  </p>
-                ) : (
-                  <ul>
-                    {videoScenes.map((scene) => (
-                      <li
-                        key={scene.id}
-                        className="border-b border-[var(--color-edge-soft)] px-4 py-3 last:border-0"
-                      >
-                        <p className="flex items-center gap-2 text-[11px] text-[var(--color-ink-faint)]">
-                          <span className="font-mono">
-                            {String(scene.scene_number).padStart(2, '0')}
-                          </span>
-                          <span>{scene.duration_seconds}s</span>
-                          <Badge tone={scene.asset_status === 'ready' ? 'emerald' : 'neutral'}>
-                            assets {scene.asset_status}
+          <div className="grid gap-3 lg:grid-cols-2">
+            {inProduction.map((video) => {
+              const videoScenes = scenes.filter((s) => s.video_id === video.id);
+              const sourced = videoScenes.filter((s) => s.asset_id).length;
+              const thumbnail = video.thumbnail_asset_id
+                ? assets.find((a) => a.id === video.thumbnail_asset_id)
+                : null;
+              const simulated = assets.some((a) => a.video_id === video.id && a.simulated);
+
+              return (
+                <Link key={video.id} href={`/youtube/production/${video.id}`}>
+                  <Panel className="h-full overflow-hidden transition-colors hover:bg-white/[0.04]">
+                    <div className="flex gap-3 p-3.5">
+                      {thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`/api/media/${thumbnail.id}`}
+                          alt=""
+                          className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-[68px] w-[120px] shrink-0 items-center justify-center rounded-lg border border-dashed border-[var(--color-edge)] text-[10px] text-[var(--color-ink-faint)]">
+                          No thumbnail
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[10px] text-amber-400">
+                          #{String(video.number).padStart(3, '0')}
+                        </p>
+                        <p className="mt-0.5 truncate text-[13px] font-medium">{video.title}</p>
+                        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <Badge
+                            tone={
+                              video.status === 'blocked'
+                                ? 'red'
+                                : video.status === 'ready'
+                                  ? 'emerald'
+                                  : 'sky'
+                            }
+                          >
+                            {PRODUCTION_STAGE_LABELS[video.stage]}
                           </Badge>
+                          {simulated && <Badge tone="amber">Simulated</Badge>}
+                          <span className="text-[var(--color-ink-faint)]">
+                            {formatMoneyPrecise(video.actual_cost)}
+                          </span>
                         </p>
-                        <p className="mt-1 text-[13px] leading-snug">{scene.narration}</p>
-                        <p className="mt-1 text-[12px] leading-snug text-[var(--color-ink-muted)]">
-                          {scene.visual_direction}
+                      </div>
+                    </div>
+
+                    {videoScenes.length > 0 && (
+                      <div className="px-3.5 pb-3">
+                        <ProgressBar
+                          value={(sourced / videoScenes.length) * 100}
+                          colour="#34d399"
+                          label="Scenes sourced"
+                        />
+                        <p className="mt-1 text-[10px] text-[var(--color-ink-faint)]">
+                          {sourced} / {videoScenes.length} scenes sourced · updated{' '}
+                          {formatRelativeTime(video.updated_at)}
                         </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Panel>
-            );
-          })
+                      </div>
+                    )}
+
+                    {video.blocked_reason && (
+                      <p className="border-t border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2 text-[11px] leading-snug text-amber-200/80">
+                        {video.blocked_reason}
+                      </p>
+                    )}
+                  </Panel>
+                </Link>
+              );
+            })}
+          </div>
         )}
       </Section>
     </PageShell>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex gap-2">
-      <dt className="w-[76px] shrink-0 text-[var(--color-ink-faint)]">{label}</dt>
-      <dd className="min-w-0 flex-1 text-[var(--color-ink-muted)]">{value}</dd>
-    </div>
   );
 }

@@ -4,7 +4,9 @@ import { Check, MessageSquare, X } from 'lucide-react';
 import { useState } from 'react';
 import { useWorkforce } from '@/lib/store/workforce';
 import { formatRelativeTime } from '@/lib/utils';
-import { Button, DemoNotice, inputClass } from '@/components/ui';
+import Link from 'next/link';
+import { Badge, Button, DemoNotice, inputClass } from '@/components/ui';
+import { formatMoneyPrecise } from '@/lib/utils';
 import type { Approval } from '@/types/domain';
 
 /**
@@ -85,6 +87,8 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
         {approval.summary}
       </p>
 
+      <ApprovalDetail approval={approval} compact={compact} />
+
       {resolved ? (
         <p className="mt-2.5 text-[12px] text-[var(--color-ink-faint)]">
           {approval.status === 'approved'
@@ -149,4 +153,80 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
       )}
     </article>
   );
+}
+
+/**
+ * Kind-specific context, drawn from the approval's own payload.
+ *
+ * A decision should be makeable from this card: what is being approved, what it
+ * cost, and a link straight to the thing itself.
+ */
+function ApprovalDetail({ approval, compact }: { approval: Approval; compact?: boolean }) {
+  const payload = approval.payload as Record<string, unknown>;
+
+  if (approval.kind === 'script') {
+    const words = typeof payload.word_count === 'number' ? payload.word_count : null;
+    const seconds =
+      typeof payload.estimated_duration_seconds === 'number'
+        ? payload.estimated_duration_seconds
+        : null;
+    const warnings = Array.isArray(payload.warnings) ? (payload.warnings as string[]) : [];
+    const findings = typeof payload.findings === 'number' ? payload.findings : null;
+
+    return (
+      <div className="mt-2.5 space-y-1.5">
+        <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--color-ink-faint)]">
+          {words !== null && <Badge>{words.toLocaleString('en-GB')} words</Badge>}
+          {seconds !== null && <Badge>~{Math.round(seconds / 60)} min</Badge>}
+          {findings !== null && <Badge>{findings} claims checked</Badge>}
+        </p>
+        {warnings.length > 0 && (
+          <p className="text-[11px] leading-snug text-amber-300">
+            Outstanding: {warnings.join('; ')}
+          </p>
+        )}
+        {typeof payload.script_id === 'string' && !compact && (
+          <Link
+            href={`/youtube/scripts/${payload.script_id}`}
+            className="inline-block text-[12px] text-amber-400 underline-offset-4 hover:underline"
+          >
+            Read the full script →
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  if (approval.kind === 'video' && typeof payload.video_id === 'string') {
+    const verdict = typeof payload.verdict === 'string' ? payload.verdict : null;
+    return (
+      <div className="mt-2.5 space-y-1.5">
+        {verdict && (
+          <Badge tone={verdict === 'pass' ? 'emerald' : verdict === 'warning' ? 'amber' : 'red'}>
+            QC {verdict}
+          </Badge>
+        )}
+        <Link
+          href={`/youtube/production/${payload.video_id}`}
+          className="block text-[12px] text-amber-400 underline-offset-4 hover:underline"
+        >
+          Watch it, check the thumbnail and see the cost →
+        </Link>
+      </div>
+    );
+  }
+
+  if (approval.kind === 'spend') {
+    const estimate = typeof payload.estimate === 'number' ? payload.estimate : null;
+    return estimate === null ? null : (
+      <p className="mt-2.5">
+        <Badge tone="amber">Estimated {formatMoneyPrecise(estimate)}</Badge>
+        <span className="ml-2 text-[11px] text-[var(--color-ink-faint)]">
+          Approving authorises this step only.
+        </span>
+      </p>
+    );
+  }
+
+  return null;
 }

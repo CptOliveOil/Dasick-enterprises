@@ -27,14 +27,17 @@ export async function POST(request: Request) {
   try {
     const result = await handleCommand(store, ownerId, parsed.data.instruction);
     if (!result.mission) {
-      return NextResponse.json({ ...result, run: null });
+      return NextResponse.json({ ...result, run: null, runs: [] });
     }
 
-    const run = parsed.data.execute
-      ? await runMission(store, ownerId, result.mission.id)
-      : null;
+    // A bulk request produced several missions; advance each one.
+    const runs = parsed.data.execute
+      ? await Promise.all(
+          result.missions.map((mission) => runMission(store, ownerId, mission.id)),
+        )
+      : [];
 
-    return NextResponse.json({ ...result, run });
+    return NextResponse.json({ ...result, run: runs[0] ?? null, runs });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'The command could not be executed.' },

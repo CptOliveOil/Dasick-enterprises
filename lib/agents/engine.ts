@@ -108,28 +108,52 @@ export async function runAgent(
       previousOutputs: await loadPreviousOutputs(store, task.mission_id, task.id),
     };
 
-    const prompt = await handler.buildPrompt(ctx);
-    const provider = getProvider(agent.provider);
-    const simulated = !providerIsLive(agent.provider);
-
     await store.update('tasks', task.id, { progress: 25 });
 
-    const result = await provider.generateStructured({
-      system: agent.system_prompt,
-      prompt,
-      model: agent.model,
-      temperature: agent.temperature,
-      maxTokens: agent.max_tokens,
-      schema: handler.schema,
-      schemaName: handler.schemaName,
-    });
+    // A provider step calls a media provider or the renderer rather than an AI
+    // model. It still runs here so authority, cost, logging and approvals are
+    // handled in exactly one place.
+    let persisted: Awaited<ReturnType<NonNullable<typeof handler.run>>>;
+    let usage = { input_tokens: 0, output_tokens: 0, estimated_cost: 0 };
+    let simulated = false;
+    let repaired = false;
 
-    await store.update('tasks', task.id, { progress: 75 });
+    if (handler.mode === 'provider') {
+      if (!handler.run) {
+        return fail(store, ownerId, task, agent, `"${capability}" has no provider implementation.`);
+      }
+      persisted = await handler.run(ctx);
+      await store.update('tasks', task.id, { progress: 75 });
+    } else {
+      if (!handler.buildPrompt || !handler.persist) {
+        return fail(store, ownerId, task, agent, `"${capability}" has no prompt implementation.`);
+      }
+      const prompt = await handler.buildPrompt(ctx);
+      const provider = getProvider(agent.provider);
+      simulated = !providerIsLive(agent.provider);
 
-    const persisted = await handler.persist(ctx, result.data);
+      const result = await provider.generateStructured({
+        system: agent.system_prompt,
+        prompt,
+        model: agent.model,
+        temperature: agent.temperature,
+        maxTokens: agent.max_tokens,
+        schema: handler.schema,
+        schemaName: handler.schemaName,
+      });
+      usage = result.usage;
+      repaired = result.repaired;
+
+      await store.update('tasks', task.id, { progress: 75 });
+      persisted = await handler.persist(ctx, result.data);
+    }
+
     const durationMs = Date.now() - began;
 
-    await recordUsage(store, ownerId, agent, task, result.usage, durationMs);
+    await recordUsage(store, ownerId, agent, task, usage, durationMs, handler.mode ?? 'ai');
+    if (persisted.spend && persisted.spend.amount > 0) {
+      await recordProviderSpend(store, ownerId, agent, task, persisted.spend);
+    }
 
     // Touch the memories that shaped this run so stale ones are identifiable.
     for (const memory of ctx.memory) {
@@ -179,7 +203,11 @@ export async function runAgent(
         (agent.average_execution_time * agent.tasks_completed + durationMs) / completed,
       ),
       estimated_total_cost: Number(
-        (agent.estimated_total_cost + result.usage.estimated_cost).toFixed(6),
+        (
+          agent.estimated_total_cost +
+          usage.estimated_cost +
+          (persisted.spend?.amount ?? 0)
+        ).toFixed(6),
       ),
       last_run_at: finishedAt,
       updated_at: finishedAt,
@@ -193,7 +221,7 @@ export async function runAgent(
       agentId: agent.id,
       kind: 'agent_completed',
       message: `${agent.name} ${persisted.summary}`,
-      metadata: { simulated, repaired: result.repaired, duration_ms: durationMs },
+      metadata: { simulated, repaired, duration_ms: durationMs },
     });
 
     return {
@@ -271,7 +299,12 @@ async function recordUsage(
   task: Task,
   usage: { input_tokens: number; output_tokens: number; estimated_cost: number },
   durationMs: number,
+  mode: 'ai' | 'provider' = 'ai',
 ) {
+  // A provider step consumes no tokens, so recording a zero-token AI row would
+  // just be noise in the economics.
+  if (mode === 'provider' && usage.input_tokens === 0 && usage.output_tokens === 0) return;
+
   const timestamp = new Date().toISOString();
   await store.insert('api_usage', {
     id: uuid(),
@@ -307,6 +340,32 @@ async function recordUsage(
       created_at: timestamp,
     });
   }
+}
+
+/** Media and rendering spend, attributed to the task that caused it. */
+async function recordProviderSpend(
+  store: DataStore,
+  ownerId: string,
+  agent: Agent,
+  task: Task,
+  spend: { amount: number; provider: string; product: string },
+) {
+  const timestamp = new Date().toISOString();
+  await store.insert('financial_transactions', {
+    id: uuid(),
+    owner_id: ownerId,
+    business_id: task.business_id,
+    kind: 'ai_cost',
+    category: `${spend.provider}:${spend.product}`,
+    description: `${agent.name} — ${task.title}`,
+    amount: spend.amount,
+    currency: 'GBP',
+    occurred_at: timestamp,
+    reference_type: 'task',
+    reference_id: task.id,
+    is_demo: false,
+    created_at: timestamp,
+  });
 }
 
 async function raiseApproval(

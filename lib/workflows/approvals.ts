@@ -52,7 +52,22 @@ export async function resolveApproval(
   if (approval.task_id) {
     const task = await store.get('tasks', approval.task_id);
     if (task) {
-      if (decision === 'approve') {
+      // A spend gate is not "work to sign off" — it is permission to proceed.
+      // Approving it re-queues the same step with spending authorised for that
+      // task alone, so the agent does the work it was stopped before doing.
+      const isSpendGate = approval.kind === 'spend' && approval.payload.authorise_spend === true;
+
+      if (decision === 'approve' && isSpendGate) {
+        await store.update('tasks', task.id, {
+          status: 'queued',
+          progress: 0,
+          output: null,
+          error: null,
+          started_at: null,
+          completed_at: null,
+          input: { ...task.input, spend_authorised: true },
+        });
+      } else if (decision === 'approve') {
         await store.update('tasks', task.id, {
           status: 'completed',
           completed_at: timestamp,
@@ -144,12 +159,23 @@ async function applyDomainEffects(
       break;
     }
     case 'script': {
-      const scriptId = approval.payload.script_id;
-      if (typeof scriptId === 'string') {
+      const scriptId =
+        typeof approval.payload.script_id === 'string' ? approval.payload.script_id : null;
+      if (scriptId) {
         await store.update('youtube_scripts', scriptId, {
           status: approved ? 'approved' : decision === 'reject' ? 'rejected' : 'draft',
           updated_at: timestamp,
         });
+        // Production may only begin once the script is approved.
+        const videos = await store.list('youtube_videos', { where: { script_id: scriptId } });
+        for (const video of videos) {
+          await store.update('youtube_videos', video.id, {
+            stage: approved ? 'voiceover' : 'script',
+            status: approved ? 'production' : 'script',
+            blocked_reason: null,
+            updated_at: timestamp,
+          });
+        }
       }
       break;
     }
@@ -172,8 +198,23 @@ async function applyDomainEffects(
     case 'video': {
       const videoId = approval.payload.video_id;
       if (typeof videoId === 'string') {
+        // Approved means ready to publish — not published. Publishing is a
+        // separate, authority-gated action.
         await store.update('youtube_videos', videoId, {
           status: approved ? 'ready' : 'production',
+          stage: approved ? 'publish' : 'quality_check',
+          blocked_reason: null,
+          updated_at: timestamp,
+        });
+      }
+      break;
+    }
+    case 'thumbnail': {
+      const assetId = approval.payload.selected_asset_id;
+      const videoId = approval.payload.video_id;
+      if (approved && typeof videoId === 'string' && typeof assetId === 'string') {
+        await store.update('youtube_videos', videoId, {
+          thumbnail_asset_id: assetId,
           updated_at: timestamp,
         });
       }

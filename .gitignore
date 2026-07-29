@@ -5,6 +5,9 @@ build/
 dist/
 coverage/
 
+# Generated media. Assets are regenerated; they are never source.
+.data/
+
 .env
 .env.local
 .env*.local

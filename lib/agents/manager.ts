@@ -8,7 +8,10 @@ import { listCapabilities } from './capabilities';
 import { createMission, type PlannedStep } from '@/lib/workflows/engine';
 
 export interface CommandResult {
+  /** The first mission created. Kept for callers that expect a single one. */
   mission: Mission | null;
+  /** Every mission this command created — more than one for bulk requests. */
+  missions: Mission[];
   tasks: Task[];
   reply: string;
   plan: ManagerPlan | null;
@@ -76,6 +79,7 @@ export async function handleCommand(
     const managerMessage = await appendManagerMessage(store, ownerId, reply, null, {});
     return {
       mission: null,
+      missions: [],
       tasks: [],
       reply,
       plan: null,
@@ -97,16 +101,27 @@ export async function handleCommand(
     input: step.input as Record<string, unknown>,
   }));
 
-  const { mission, tasks } = await createMission(store, {
-    ownerId,
-    businessId: business?.id ?? null,
-    title: finalPlan.mission_title,
-    objective: finalPlan.objective,
-    workflowKey: finalPlan.workflow,
-    steps,
-    context: { instruction: trimmed },
-  });
+  // Bulk requests become separate missions, so each video has its own cost,
+  // approvals, assets and failure modes.
+  const repeat = Math.max(1, Math.min(finalPlan.repeat ?? 1, 10));
+  const missions: Mission[] = [];
+  const tasks: Task[] = [];
 
+  for (let index = 0; index < repeat; index += 1) {
+    const created = await createMission(store, {
+      ownerId,
+      businessId: business?.id ?? null,
+      title: repeat > 1 ? `${finalPlan.mission_title} (${index + 1} of ${repeat})` : finalPlan.mission_title,
+      objective: finalPlan.objective,
+      workflowKey: finalPlan.workflow,
+      steps,
+      context: { instruction: trimmed, batch_index: index, batch_size: repeat },
+    });
+    missions.push(created.mission);
+    tasks.push(...created.tasks);
+  }
+
+  const mission = missions[0]!;
   await store.update('command_messages', userMessage.id, { mission_id: mission.id });
 
   const managerMessage = await appendManagerMessage(
@@ -122,8 +137,12 @@ export async function handleCommand(
 
   return {
     mission,
+    missions,
     tasks,
-    reply: finalPlan.reply,
+    reply:
+      repeat > 1
+        ? `${finalPlan.reply} I have created ${repeat} separate missions so each one has its own budget, approvals and assets.`
+        : finalPlan.reply,
     plan: finalPlan,
     messages: [{ ...userMessage, mission_id: mission.id }, managerMessage],
     planned_locally: plannedLocally,
@@ -167,7 +186,8 @@ async function planWithModel(
     'Capabilities the workforce actually has. You may only use these:',
     ...capabilities.map((c) => `- ${c.capability}: ${c.label}`),
     '',
-    'Reusable workflows you may name in `workflow`: youtube_video, youtube_ideas, youtube_script, etsy_product, channel_analysis. Use null when none fits.',
+    'Reusable workflows you may name in `workflow`: youtube_video_full (the complete faceless video pipeline — prefer this for "make a video"), youtube_ideas, youtube_script, youtube_video, etsy_product, channel_analysis. Use null when none fits.',
+    'If the operator asks for several videos, set `repeat` to that number rather than adding more steps. Each repeat becomes its own mission.',
     '',
     'Rules:',
     '- Every step must use a capability from the list above, verbatim.',
@@ -220,7 +240,27 @@ function sanitisePlan(plan: ManagerPlan, available: Set<string>): ManagerPlan | 
 interface Route {
   match: RegExp;
   business: 'youtube' | 'etsy' | null;
-  build: (instruction: string) => Omit<ManagerPlan, 'business'>;
+  build: (instruction: string) => Omit<ManagerPlan, 'business' | 'repeat'>;
+}
+
+/** "Create 3 videos this week" → 3. Anything unbounded falls back to one. */
+function countVideos(instruction: string): number {
+  const digits = instruction.match(/\b(\d{1,2})\s+(?:more\s+)?(?:youtube\s+)?videos?\b/i);
+  if (digits) {
+    const value = Number(digits[1]);
+    if (value >= 1 && value <= 10) return value;
+  }
+  const words: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+  const word = instruction.match(/\b(two|three|four|five)\s+(?:youtube\s+)?videos?\b/i);
+  if (word) return words[word[1]!.toLowerCase()] ?? 1;
+  return 1;
+}
+
+/** Pulls the subject out of "make a video about X" for the mission title. */
+function topicOf(instruction: string): string {
+  const match = instruction.match(/\babout\s+(.+?)\s*[.!?]?$/i);
+  if (!match) return '';
+  return match[1]!.trim().replace(/^the\s+/i, '').slice(0, 70);
 }
 
 function n(instruction: string, fallback: number): number {
@@ -251,14 +291,30 @@ const ROUTES: Route[] = [
     }),
   },
   {
-    match: /(prepare|produce|create|make|new).*(video|youtube)|youtube video/i,
+    // The headline command: a full faceless video, end to end.
+    match: /(prepare|produce|create|make|new|finish).*(faceless|video|documentary)|youtube video|about the/i,
     business: 'youtube',
     build: (instruction) => ({
-      mission_title: 'Produce a YouTube video',
-      objective: `Take a video from idea through research, script, fact check, thumbnails and a production plan. Instruction: "${instruction}"`,
-      workflow: 'youtube_video',
+      mission_title: `Produce a faceless video${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Take a video from research through script, fact check, narration, visuals, assets, thumbnail, metadata, assembly and quality control, to a package ready for publishing. Instruction: "${instruction}"`,
+      workflow: 'youtube_video_full',
       reply:
-        'Mission created. The YouTube Researcher starts on ideas, then the Scriptwriter and Fact Checker take over. Three approvals will be required before production begins.',
+        'Mission created. Research and the Scriptwriter start now, then the Fact Checker. ' +
+        'I will stop for your approval on the script before any production work or spending begins — ' +
+        'after that the Voiceover Agent, Visual Director, Asset Agent, Thumbnail Strategist and Video Producer take it through to a rendered video, ' +
+        'and Quality Control brings it back to you for final approval.',
+      steps: [],
+    }),
+  },
+  {
+    match: /(continue|resume|carry on).*(production|video|mission)/i,
+    business: 'youtube',
+    build: (instruction) => ({
+      mission_title: 'Continue production',
+      objective: `Continue an existing production. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        'To continue a specific video, open it in YouTube → Production and use the production actions, or resume its mission from the Missions area. I have not created a duplicate mission.',
       steps: [],
     }),
   },
@@ -341,11 +397,12 @@ function routeLocally(
   if (!route) return null;
 
   const built = route.build(instruction);
+  const repeat = countVideos(instruction);
   const business = route.business
     ? (businesses.find((b) => b.slug === route.business)?.slug ?? null)
     : null;
 
-  const plan: ManagerPlan = { ...built, business };
+  const plan: ManagerPlan = { ...built, business, repeat };
   if (plan.steps.length > 0) {
     const usable = plan.steps.filter((s) => available.has(s.capability));
     if (usable.length === 0) return null;

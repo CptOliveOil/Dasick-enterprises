@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { getStore } from '@/lib/db';
 import { config, demoMode, supabaseConfigured } from '@/lib/config';
 import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations/registry';
+import { describeMediaProviders, simulationAllowed } from '@/lib/integrations/providers/registry';
+import { ProviderPanel } from '@/components/settings/ProviderPanel';
 import { AUTHORITY_DESCRIPTIONS } from '@/lib/agents/authority';
 import { Badge, Panel } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
@@ -30,6 +32,7 @@ export default async function SettingsPage() {
   ]);
 
   const integrations = resolveIntegrations(INTEGRATION_DEFINITIONS);
+  const mediaProviders = describeMediaProviders();
   const grouped = integrations.reduce<Record<string, typeof integrations>>((acc, item) => {
     (acc[item.kind] ??= []).push(item);
     return acc;
@@ -98,6 +101,24 @@ export default async function SettingsPage() {
             )}
           </ul>
         </Panel>
+      </Section>
+
+      <Section title="Media providers">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {mediaProviders.map((descriptor) => (
+            <ProviderPanel key={descriptor.kind} descriptor={descriptor} />
+          ))}
+        </div>
+        {simulationAllowed() && (
+          <p className="mt-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2.5 text-[12px] leading-relaxed text-amber-100/80">
+            <strong className="font-semibold">Demo Mode simulation is on.</strong> Missing voice,
+            image, video and stock providers are standing in with clearly-marked placeholder media
+            so the whole production pipeline can be demonstrated. Every asset it produces is
+            flagged Simulated and never given a public URL. Set{' '}
+            <code className="font-mono text-[11px]">DISABLE_SIMULATED_MEDIA=true</code> to make
+            those steps block instead.
+          </p>
+        )}
       </Section>
 
       {(Object.keys(grouped) as IntegrationKind[]).map((kind) => (

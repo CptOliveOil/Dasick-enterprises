@@ -23,6 +23,7 @@ accounting.
 - [Supabase setup](#supabase-setup)
 - [Demo mode](#demo-mode)
 - [How it works](#how-it-works)
+- [The YouTube production pipeline](#the-youtube-production-pipeline)
 - [Galaxy architecture](#galaxy-architecture)
 - [Extending it](#extending-it)
 - [Testing](#testing)
@@ -43,11 +44,12 @@ npm run dev
 
 Open <http://localhost:3000>.
 
-With no configuration at all the application starts in **demo mode**: twelve
+With no configuration at all the application starts in **demo mode**: sixteen
 agents, four missions, live activity, approvals, finance — all seeded, all
 labelled `Demo`, and all genuinely functional. Type an instruction into the
 command bar and a real mission is planned, real tasks are created and real
-agents run.
+agents run — including a full YouTube video, rendered locally through ffmpeg to
+a file you can play.
 
 Other scripts:
 
@@ -77,10 +79,16 @@ Every variable is optional. Nothing is displayed as connected unless it is.
 | `VOICE_PROVIDER` / `VOICE_PROVIDER_API_KEY` | Narration generation. |
 | `IMAGE_PROVIDER` / `IMAGE_PROVIDER_API_KEY` | Thumbnail and scene imagery. |
 | `VIDEO_PROVIDER` / `VIDEO_PROVIDER_API_KEY` | Scene video generation. |
+| `STOCK_PROVIDER` / `STOCK_PROVIDER_API_KEY` | Licensed stock footage and stills. |
+| `FFMPEG_PATH` | Override the bundled `ffmpeg-static` binary used for rendering. |
+| `DISABLE_SIMULATED_MEDIA` | `true` makes missing media providers block instead of simulating, even in demo mode. |
 | `DEFAULT_CURRENCY` | Display currency. Defaults to `GBP`. |
 
 Provider keys are read in `lib/config.ts`, which is imported only by
-server-side modules. No key reaches the browser.
+server-side modules. No key reaches the browser — not the Anthropic key, not a
+voice, image or video key, and not a YouTube refresh token. Settings reports
+connection state and required variable *names*; a saved secret is never
+displayed again.
 
 ---
 
@@ -88,9 +96,10 @@ server-side modules. No key reaches the browser.
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy the project URL and anon key into `.env.local`.
-3. Run the migration. Either paste
-   `supabase/migrations/0001_initial_schema.sql` into the SQL editor, or with
-   the Supabase CLI:
+3. Run the migrations, in order. Either paste
+   `supabase/migrations/0001_initial_schema.sql` then
+   `supabase/migrations/0002_production_pipeline.sql` into the SQL editor, or
+   with the Supabase CLI:
 
    ```bash
    supabase link --project-ref <your-ref>
@@ -100,10 +109,19 @@ server-side modules. No key reaches the browser.
 4. Restart the dev server. Command Centre now requires sign-in and stores
    everything in Postgres.
 
-The migration creates all 33 tables, their indexes, and Row Level Security
+`0001` creates the 33 core tables, their indexes, and Row Level Security
 policies on every one. Tables that carry `owner_id` are restricted to
 `auth.uid()`; child tables inherit ownership through their parent business,
 agent, task or mission. A trigger creates a `profiles` row on sign-up.
+
+`0002` adds the production pipeline: `media_assets`, `youtube_voiceovers`,
+`youtube_timelines`, `provider_jobs`, `youtube_render_jobs`,
+`youtube_quality_checks`, `youtube_metadata`, `production_budgets` and
+`production_settings`, with RLS on each. It also creates a **private** storage
+bucket, `command-centre-media`, whose policies scope every object to the owner's
+folder. Rendered video, narration, imagery and thumbnails are served through
+`/api/media/[id]`, which re-checks ownership on every request — media is never
+given a public URL.
 
 A fresh Supabase project starts empty — no demo data is written to a real
 database. Create your businesses and agents from Settings, or adapt
@@ -126,6 +144,27 @@ When no AI provider is configured, agents run on a simulated provider that
 synthesises schema-valid output from the same Zod schemas the real provider is
 validated against. Its output is prefixed `[Simulated]` and the header shows
 `AI SIMULATED`. The pipeline is real; only the text is not.
+
+### Simulated media
+
+Media is treated more strictly than text, because a file that does not exist
+must never look like one that does.
+
+- **Demo mode only.** `simulationAllowed()` requires demo mode *and*
+  `DISABLE_SIMULATED_MEDIA` unset. Outside demo mode a missing provider always
+  stops the mission and names the provider and the variables it needs. There is
+  no path by which real mode silently substitutes a placeholder.
+- **Always labelled.** A simulated asset is stored with `simulated: true`,
+  renders a `SIMULATED` badge, and a video containing any simulated input shows
+  `CONTAINS SIMULATED ASSETS` on the player.
+- **Never public.** `public_url` stays `null`. Nothing is given a URL that looks
+  like a real hosted asset.
+- **Never mixed.** Demo rows carry `is_demo` and live in the in-memory store; a
+  real Supabase project is never seeded.
+
+The renderer is the exception, and honestly so: ffmpeg runs locally on real
+input and produces a real file, so its output is not marked simulated even in
+demo mode. Settings shows it as `Connected — Local ffmpeg`.
 
 ---
 
@@ -155,6 +194,21 @@ runAgent(store, ownerId, taskId)
 Adding an agent capability means adding a handler to
 `lib/agents/capabilities.ts` — a schema, a prompt builder and a persist
 function. The engine is never touched.
+
+Handlers come in two modes, and **both** go through this one function:
+
+| Mode | What it does | Example |
+| --- | --- | --- |
+| `ai` | Builds a prompt, calls the provider, validates with Zod, persists | Write a script |
+| `provider` | Calls a media provider or the renderer through `run()` | Generate narration, assemble the video |
+
+A `provider` handler skips prompt-building and token accounting — there is no
+model call — but it still passes through authority checks, context and memory
+loading, budget gates, cost tracking, task logging, activity logging and
+approval handling. Real spend is returned as a `spend` field on the persist
+result and recorded against the task that caused it. Nothing outside
+`lib/agents/engine.ts` calls an AI provider: not a component, page, API route,
+workflow file or YouTube module.
 
 ### The workflow engine
 
@@ -204,6 +258,99 @@ Every run writes an `api_usage` row: provider, model, token counts, estimated
 cost, duration. Real spend also writes a `financial_transactions` row linked
 back to the task that caused it, which is what makes questions like "how much
 did Video #008 cost?" answerable rather than approximate.
+
+---
+
+## The YouTube production pipeline
+
+A faceless video goes from a topic to a finished, watchable file without a
+human touching an editor — and stops, visibly, at the two points where judgement
+is actually required.
+
+```
+Idea → Research → Script → Fact check → ▶ SCRIPT APPROVAL
+     → Voiceover → Visual plan → Assets → Thumbnail → Metadata
+     → Assembly → Quality check → ▶ FINAL APPROVAL → Ready to publish
+```
+
+Both `▶` steps are real gates: the mission halts and waits. Approving the script
+is what starts anything that costs money. Approving the final video sets the
+video to `ready` — **it never publishes.** Uploading is a separate, explicit
+action behind the YouTube Data API, and there is no code path that publishes on
+its own.
+
+`PRODUCTION_STAGES` in `types/production.ts` is the single definition of those
+fourteen stages; the pipeline track, the videos board and the stage detail all
+render from it.
+
+### Media providers
+
+`lib/integrations/providers/` follows the same rule as the platform
+integrations: until credentials and an adapter both exist, the factory returns
+an adapter that *throws*.
+
+| Provider | Purpose | Without credentials |
+| --- | --- | --- |
+| Voice | Narration | Blocks the mission, naming `VOICE_PROVIDER` |
+| Image | Scene stills and thumbnails | Blocks, naming `IMAGE_PROVIDER` |
+| Video | Generated motion clips | Blocks, naming `VIDEO_PROVIDER` |
+| Stock | Licensed footage and stills | Blocks, naming `STOCK_PROVIDER` |
+| Renderer | Local ffmpeg assembly | Always available — no credentials, no spend |
+
+A blocked step writes the reason onto the video and raises a
+`provider_required` notification. It does not fail silently, and it does not
+produce a placeholder pretending to be the real thing. In demo mode, and only
+there, the missing providers are stood in for by clearly-marked simulations —
+see [Simulated media](#simulated-media).
+
+Every provider call runs server-side. Requests are checked *before* work starts,
+so a mission does not spend on images and then discover the voice provider is
+missing.
+
+### Rendering
+
+Assembly is real local compute, in `lib/integrations/providers/ffmpeg-renderer.ts`:
+scene stills and clips scaled and cropped to 1920×1080, Ken Burns motion via
+`zoompan`, crossfades via `xfade`, narration mixed with background music, and
+burned-in captions and on-screen text. The bundled `ffmpeg-static` build has no
+`drawtext` filter, so *all* text goes through `libass` — the renderer generates
+ASS files and applies them with the `subtitles=` filter. Output is
+`libx264` / `aac`, `yuv420p`, `+faststart`.
+
+Scene durations are scaled to the *measured* narration length rather than the
+planned estimate, and the finished file is probed rather than assumed — the
+quality check reports what ffmpeg actually found.
+
+### Budgets
+
+`lib/finance/budgets.ts` gates every step that can spend, with three outcomes in
+order of severity:
+
+| Outcome | Behaviour |
+| --- | --- |
+| Over a category ceiling | **Blocked outright.** Approval cannot override it. |
+| Over the approval threshold | Stops and raises a spend approval. |
+| Within budget | Proceeds. |
+
+Defaults per business are conservative — £25 per video, with £10 image, £12
+video and £5 voice ceilings, a £5 approval threshold and concurrency 3 — and are
+editable in the YouTube settings tab. Approving a spend gate re-queues that task
+with an explicit authorisation for that one step; it does not become standing
+permission.
+
+### The job queue
+
+Provider work runs through `lib/jobs/`, persisting a `provider_jobs` row per
+call so a long render or a slow generation is observable, attributable and
+costed rather than an opaque wait. The in-process implementation is the default;
+the interface exists so a real worker can be dropped in without touching a
+handler.
+
+### Batches
+
+"Create 3 YouTube videos this week" creates **three separate missions**, each
+with its own tasks, approvals, budget and cost — not one mission producing three
+videos. The Manager Agent caps a single instruction at ten.
 
 ---
 
@@ -321,6 +468,17 @@ from its factory. Until credentials exist, the factory returns an adapter that
 never look like one that does. Register the required environment variables in
 `lib/integrations/registry.ts` so Settings reports the connection state honestly.
 
+### Add a media provider
+
+Implement the interface in `lib/integrations/providers/types.ts` — voice, image,
+video or stock — and return it from its getter in
+`lib/integrations/providers/registry.ts` when the credentials are present. The
+getter's contract is deliberately strict: credentials but no adapter *throws*,
+rather than quietly degrading. Report a real per-call cost from the adapter so
+the budget gates and the per-video cost breakdown stay accurate, and implement
+`isConnected()` as a genuine cheapest-possible round trip — Settings' "Test
+connection" calls it directly rather than inferring from the environment.
+
 ---
 
 ## Testing
@@ -344,6 +502,14 @@ Covers the parts where being wrong is expensive:
   refusal, and the domain effects of each.
 - **Mission status** — that status and progress are derived correctly from tasks.
 - **Finance** — summaries, windowing, per-business scoping, agent economics.
+- **Production** — the script gate genuinely holding production back, the full
+  demo-mode pipeline running through to a real rendered file with measured
+  quality-check facts, and a final approval that reaches *ready* without
+  publishing.
+- **Honest failure** — that in real mode a missing voice provider stops the
+  mission, names what is missing, and creates no voiceover asset.
+- **Budgets** — category ceilings that approval cannot override, thresholds that
+  stop for the operator, and spend approvals that re-queue rather than complete.
 
 ---
 
@@ -374,14 +540,20 @@ components/
   layout/  ui/            Page chrome and primitives
 lib/
   agents/                 Execution engine, capabilities, authority, memory, status
+    production/           Voiceover, visual plan, assets, assembly, quality check
   workflows/              Definitions, state machine, runner, approvals
-  integrations/           AI providers, platform and media adapters
-  finance/                Money and agent economics
+  integrations/
+    ai/                   AI providers
+    providers/            Voice, image, video, stock, ffmpeg renderer
+  media/                  ffmpeg invocation, probing, captions, ASS generation
+  jobs/                   Provider job queue
+  production/             Pure resolvers and defaults (no server imports)
+  finance/                Money, agent economics, production budgets
   db/                     Storage drivers, demo seed
   store/                  Client state
   supabase/               Browser and server clients
 schemas/                  Zod schemas for every structured AI response
-types/                    Domain and application state types
+types/                    Domain, production and application state types
 supabase/migrations/      SQL schema and Row Level Security
 tests/                    Vitest
 ```
@@ -397,6 +569,9 @@ The application was built in phases, and the architecture supports the rest:
 5. YouTube workspace and analytics foundations ✅
 6. Etsy workspace ✅
 7. Finance and agent economics ✅
-8. Further integrations and automation — media generation, live platform data
-   and scheduled automation have interfaces and honest not-connected states,
-   ready for adapters.
+8. End-to-end video production — voiceover, visual planning, asset generation,
+   thumbnails, local ffmpeg assembly, quality checking, budgets and the job
+   queue ✅
+9. Live platform data and scheduled automation — publishing, analytics and
+   scheduling have interfaces and honest not-connected states, ready for
+   adapters.

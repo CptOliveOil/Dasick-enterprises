@@ -16,6 +16,13 @@ const KIND_LABELS: Record<ActivityKind, string> = {
   mission_completed: 'Mission completed',
   approval_requested: 'Approval requested',
   approval_resolved: 'Approval resolved',
+  blocked: 'Blocked',
+  job_started: 'Job started',
+  job_progress: 'Job progress',
+  job_completed: 'Job complete',
+  job_failed: 'Job failed',
+  asset_created: 'Asset created',
+  operator_action: 'Operator',
   system: 'System',
 };
 
@@ -28,6 +35,13 @@ const KIND_COLOUR: Record<ActivityKind, string> = {
   mission_completed: '#34d399',
   approval_requested: '#f59e0b',
   approval_resolved: '#34d399',
+  blocked: '#f59e0b',
+  job_started: '#38bdf8',
+  job_progress: '#38bdf8',
+  job_completed: '#34d399',
+  job_failed: '#f87171',
+  asset_created: '#a855f7',
+  operator_action: '#e8ebf5',
   system: '#64748b',
 };
 

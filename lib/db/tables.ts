@@ -33,6 +33,17 @@ import type {
   YoutubeScriptVersion,
   YoutubeVideo,
 } from '@/types/domain';
+import type {
+  MediaAsset,
+  ProductionBudget,
+  ProductionSettings,
+  ProviderJob,
+  YoutubeMetadata,
+  YoutubeQualityCheck,
+  YoutubeRenderJob,
+  YoutubeTimeline,
+  YoutubeVoiceover,
+} from '@/types/production';
 
 /**
  * The single source of truth for which tables exist and what shape their rows
@@ -73,6 +84,15 @@ export interface Tables {
   financial_transactions: FinancialTransaction;
   api_usage: ApiUsage;
   integration_connections: IntegrationConnection;
+  media_assets: MediaAsset;
+  youtube_voiceovers: YoutubeVoiceover;
+  youtube_timelines: YoutubeTimeline;
+  youtube_render_jobs: YoutubeRenderJob;
+  youtube_quality_checks: YoutubeQualityCheck;
+  youtube_metadata: YoutubeMetadata;
+  provider_jobs: ProviderJob;
+  production_budgets: ProductionBudget;
+  production_settings: ProductionSettings;
 }
 
 export type TableName = keyof Tables;
@@ -112,6 +132,15 @@ export const TABLE_NAMES: TableName[] = [
   'financial_transactions',
   'api_usage',
   'integration_connections',
+  'media_assets',
+  'youtube_voiceovers',
+  'youtube_timelines',
+  'youtube_render_jobs',
+  'youtube_quality_checks',
+  'youtube_metadata',
+  'provider_jobs',
+  'production_budgets',
+  'production_settings',
 ];
 
 /** Every row in every table has these. */

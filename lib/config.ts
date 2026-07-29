@@ -39,5 +39,13 @@ export const anthropicConfigured = Boolean(config.anthropic.apiKey);
 /**
  * Demo mode: no database credentials, so the app runs on the in-memory store
  * seeded with clearly-labelled demo data. Everything still works end to end.
+ *
+ * Read it through `isDemoMode()` anywhere the answer gates real behaviour —
+ * the constant is captured at import, which is fine for rendering but wrong
+ * for a decision as consequential as "may this be simulated".
  */
 export const demoMode = !supabaseConfigured;
+
+export function isDemoMode(): boolean {
+  return !(env('NEXT_PUBLIC_SUPABASE_URL') && env('NEXT_PUBLIC_SUPABASE_ANON_KEY'));
+}

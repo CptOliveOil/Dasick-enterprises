@@ -266,6 +266,15 @@ export type ApprovalKind =
   | 'publish'
   | 'generic';
 
+/** Production-stage approvals reuse the kinds above; these name the stage. */
+export const PRODUCTION_APPROVAL_KINDS: ApprovalKind[] = [
+  'script',
+  'thumbnail',
+  'video',
+  'spend',
+  'publish',
+];
+
 export interface Approval {
   id: UUID;
   owner_id: UUID;
@@ -298,6 +307,13 @@ export type ActivityKind =
   | 'mission_completed'
   | 'approval_requested'
   | 'approval_resolved'
+  | 'blocked'
+  | 'job_started'
+  | 'job_progress'
+  | 'job_completed'
+  | 'job_failed'
+  | 'asset_created'
+  | 'operator_action'
   | 'system';
 
 export interface ActivityLog {
@@ -322,6 +338,12 @@ export type NotificationKind =
   | 'agent_failed'
   | 'integration_disconnected'
   | 'budget_warning'
+  | 'budget_exceeded'
+  | 'provider_required'
+  | 'render_failed'
+  | 'video_ready'
+  | 'upload_complete'
+  | 'mission_blocked'
   | 'task_completed';
 
 export interface AppNotification {
@@ -510,6 +532,7 @@ export interface ThumbnailConcept {
   business_id: UUID;
   video_id: UUID | null;
   script_id: UUID | null;
+  concept_title: string;
   visual_description: string;
   subject: string;
   background: string;
@@ -517,7 +540,15 @@ export interface ThumbnailConcept {
   text: string;
   emotion: string;
   colour_direction: string;
+  contrast_strategy: string;
+  click_psychology: string;
+  image_prompt: string;
+  /** 0–1, the strategist's own confidence in the concept. */
+  confidence: number;
   reasoning: string;
+  /** The generated candidate image, once an image provider has produced one. */
+  asset_id: UUID | null;
+  selected: boolean;
   is_demo: boolean;
   created_at: Timestamp;
 }
@@ -533,6 +564,7 @@ export const VIDEO_STATUSES = [
   'ready',
   'scheduled',
   'published',
+  'blocked',
   'failed',
 ] as const;
 export type VideoStatus = (typeof VIDEO_STATUSES)[number];
@@ -547,8 +579,22 @@ export interface YoutubeVideo {
   number: number;
   title: string;
   status: VideoStatus;
+  /** Where the video is in the production pipeline. */
+  stage: import('./production').ProductionStage;
+  /** Set when production cannot continue, with the exact reason. */
+  blocked_reason: string | null;
   alternative_titles: string[];
   selected_thumbnail_id: UUID | null;
+  /** Media assets: the chosen thumbnail image and the rendered video. */
+  thumbnail_asset_id: UUID | null;
+  final_asset_id: UUID | null;
+  voiceover_id: UUID | null;
+  timeline_id: UUID | null;
+  metadata_id: UUID | null;
+  estimated_cost: number;
+  actual_cost: number;
+  /** Set only after a genuine upload returns an id. */
+  published_external_id: string | null;
   publish_at: Timestamp | null;
   is_demo: boolean;
   created_at: Timestamp;
@@ -560,16 +606,31 @@ export type AssetStatus = 'pending' | 'requested' | 'ready' | 'failed';
 export interface YoutubeScene {
   id: UUID;
   video_id: UUID;
+  /** Set once scenes belong to a mission; older rows may not have it. */
+  business_id: UUID | null;
+  mission_id: UUID | null;
   scene_number: number;
+  /** Seconds from the start of the video, estimated from narration length. */
+  start_time_estimate: number;
   duration_seconds: number;
   narration: string;
+  visual_type: import('./production').VisualType;
   visual_direction: string;
   b_roll_query: string;
   image_prompt: string;
   video_prompt: string;
   on_screen_text: string;
+  animation_notes: string;
   transition: string;
+  /** 1 (filler) – 5 (the shot the video needs). Drives spend priority. */
+  importance: number;
+  /** How this scene's visual should be obtained. Chosen by the Visual Director. */
+  asset_strategy: import('./production').AssetStrategy;
   asset_status: AssetStatus;
+  /** The media asset currently attached to this scene. */
+  asset_id: UUID | null;
+  status: import('./production').SceneStatus;
+  error: string | null;
   is_demo: boolean;
 }
 

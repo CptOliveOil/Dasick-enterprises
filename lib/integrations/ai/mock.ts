@@ -37,6 +37,7 @@ export class MockProvider implements AIProvider {
     const synthesised = synthesise(options.schema as z.ZodTypeAny, {
       seed: hash(options.prompt + options.schemaName),
       path: [],
+      index: 0,
     });
     const raw = JSON.stringify(synthesised, null, 2);
     const parsed = parseStructured(raw, options.schema);
@@ -66,6 +67,8 @@ function hash(value: string): number {
 interface Ctx {
   seed: number;
   path: string[];
+  /** Position within the enclosing array, so ordering fields stay sequential. */
+  index: number;
 }
 
 const FILLER = [
@@ -84,8 +87,19 @@ function fillerText(minLength: number, label: string): string {
   return text;
 }
 
-function checkValue(def: { checks?: Array<{ kind: string; value?: number }> }, kind: string) {
+function checkValue(
+  def: { checks?: Array<{ kind: string; value?: number; inclusive?: boolean }> },
+  kind: string,
+) {
   return def.checks?.find((c) => c.kind === kind)?.value;
+}
+
+/** `.positive()` is an exclusive minimum of 0, so zero is not a legal value. */
+function excludesZero(def: {
+  checks?: Array<{ kind: string; value?: number; inclusive?: boolean }>;
+}): boolean {
+  const min = def.checks?.find((c) => c.kind === 'min');
+  return Boolean(min && min.value === 0 && min.inclusive === false);
 }
 
 function synthesise(schema: z.ZodTypeAny, ctx: Ctx): unknown {
@@ -119,6 +133,7 @@ function synthesise(schema: z.ZodTypeAny, ctx: Ctx): unknown {
         synthesise(def.type as z.ZodTypeAny, {
           seed: ctx.seed + i,
           path: [...ctx.path, String(i)],
+          index: i,
         }),
       );
     }
@@ -133,17 +148,36 @@ function synthesise(schema: z.ZodTypeAny, ctx: Ctx): unknown {
       const min = checkValue(def, 'min') ?? 0;
       const max = checkValue(def, 'max') ?? min + 100;
       const isInt = def.checks?.some((c) => c.kind === 'int');
-      const spread = max - min;
-      const value = min + (spread > 0 ? (ctx.seed % Math.max(1, Math.floor(spread))) : 0);
-      const bounded = Math.min(max, Math.max(min, value));
-      // `confidence`-style 0–1 fields need a fractional value, not an integer.
+      const field = (ctx.path[ctx.path.length - 1] ?? '').toLowerCase();
+
+      // `confidence`-style 0–1 fields need a fraction, not an integer.
       if (!isInt && max <= 1) return Number((0.55 + (ctx.seed % 30) / 100).toFixed(2));
+
+      // Ordering fields must be sequential and distinct, or the output is
+      // internally inconsistent — duplicate scene numbers, chapters out of order.
+      if (/(^|_)(number|index|order)$/.test(field)) {
+        const base = min > 0 || excludesZero(def) ? 1 : 0;
+        return base + ctx.index;
+      }
+      if (field.includes('start') && field.includes('second')) {
+        return ctx.index * 10;
+      }
+
+      // Otherwise sit near the low end of the range: a placeholder should look
+      // plausible, and an 8-second scene is more plausible than a 2-minute one.
+      const spread = Math.max(0, max - min);
+      const value = min + spread * 0.1 + (ctx.seed % 3);
+      const bounded = Math.min(max, Math.max(min || (isInt ? 1 : 0.1), value));
       return isInt ? Math.max(1, Math.round(bounded)) : Number(bounded.toFixed(2));
     }
     case 'ZodBoolean':
       return ctx.seed % 2 === 0;
     case 'ZodEnum':
-      return def.values?.[ctx.seed % (def.values?.length ?? 1)] ?? '';
+      // Always the first variant. Schemas here list the benign value first
+      // ("verified", "pass", "info"), and a simulated fact check that randomly
+      // declares claims incorrect would be manufacturing failures rather than
+      // standing in for a real one.
+      return def.values?.[0] ?? '';
     case 'ZodNullable':
       return null;
     case 'ZodOptional':

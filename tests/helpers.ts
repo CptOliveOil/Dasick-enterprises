@@ -99,3 +99,79 @@ export async function makeWorkspace() {
 
   return { store, business, agents };
 }
+
+/**
+ * A workspace with the full production workforce: research and writing plus
+ * narration, visuals, assets, thumbnails, metadata, assembly and QC.
+ */
+export async function makeProductionWorkspace() {
+  const base = await makeWorkspace();
+  const { store, business } = base;
+
+  const agents = {
+    ...base.agents,
+    voiceover: makeAgent({
+      name: 'Voiceover Agent',
+      slug: 'voiceover',
+      business_id: business.id,
+      capabilities: ['youtube.voiceover.plan', 'youtube.voiceover.generate'],
+    }),
+    visualDirector: makeAgent({
+      name: 'Visual Director',
+      slug: 'visual-director',
+      business_id: business.id,
+      capabilities: ['youtube.visual_plan'],
+    }),
+    assetAgent: makeAgent({
+      name: 'Asset Agent',
+      slug: 'asset',
+      business_id: business.id,
+      authority_level: 2,
+      capabilities: ['youtube.asset_generate'],
+    }),
+    thumbnailAgent: makeAgent({
+      name: 'Thumbnail Strategist',
+      slug: 'thumbnail',
+      business_id: business.id,
+      capabilities: ['youtube.thumbnail.concepts', 'youtube.thumbnail.generate'],
+    }),
+    metadataAgent: makeAgent({
+      name: 'SEO Agent',
+      slug: 'seo',
+      business_id: business.id,
+      capabilities: ['youtube.metadata', 'seo.keywords'],
+    }),
+    editor: makeAgent({
+      name: 'Video Producer',
+      slug: 'video-producer',
+      business_id: business.id,
+      authority_level: 2,
+      capabilities: ['youtube.video_assemble', 'youtube.production.plan'],
+    }),
+    qc: makeAgent({
+      name: 'Quality Control',
+      slug: 'quality-control',
+      business_id: business.id,
+      capabilities: ['youtube.quality_check'],
+    }),
+  };
+
+  await store.insertMany(
+    'agents',
+    Object.values(agents).filter((a) => !Object.values(base.agents).includes(a)),
+  );
+
+  await store.insert('youtube_channels', {
+    id: uuid(),
+    business_id: business.id,
+    name: 'Test Channel',
+    handle: '@test',
+    niche: 'History documentaries',
+    target_audience: 'Adults 25–54',
+    external_id: null,
+    is_demo: false,
+    created_at: new Date().toISOString(),
+  });
+
+  return { ...base, agents };
+}

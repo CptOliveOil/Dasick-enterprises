@@ -1,10 +1,14 @@
 import { getWorkspace } from '@/lib/db/workspace';
 import { getYoutubeProvider } from '@/lib/integrations/platforms';
+import { getVoiceProvider } from '@/lib/integrations/providers/registry';
+import { resolveSettings } from '@/lib/production/resolve';
+import { getBudget } from '@/lib/finance/budgets';
 import { agentStatusStyle } from '@/lib/agents/status';
 import { Badge, Panel } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
 import { YOUTUBE_TABS } from '@/components/youtube/tabs';
 import { NoBusiness } from '@/components/youtube/NoBusiness';
+import { ProductionSettingsForm } from '@/components/youtube/ProductionSettingsForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,18 +16,31 @@ export default async function YoutubeSettingsPage() {
   const { store, ownerId, business } = await getWorkspace('youtube');
   if (!business) return <NoBusiness tabs={YOUTUBE_TABS} title="YouTube" />;
 
-  const [channels, agents] = await Promise.all([
+  const [channels, agents, settings, budget] = await Promise.all([
     store.list('youtube_channels', { where: { business_id: business.id } }),
     store.list('agents', { where: { owner_id: ownerId, business_id: business.id } }),
+    resolveSettings(store, ownerId, business.id),
+    getBudget(store, ownerId, business.id, business.currency),
   ]);
   const connected = getYoutubeProvider().connected;
+  const voice = getVoiceProvider();
+  // Voices are listed only when a provider is genuinely reachable.
+  const voices = voice.isConnected() ? await voice.listVoices().catch(() => []) : [];
 
   return (
     <PageShell
       title="YouTube settings"
-      description="Channels, connection state and the agents assigned to this business."
+      description="Channels, voice, rendering, budgets and publishing for this business."
       tabs={YOUTUBE_TABS}
+      wide
     >
+      <ProductionSettingsForm
+        settings={settings}
+        budget={budget}
+        voiceProvider={voice.descriptor}
+        voices={voices}
+      />
+
       <Section title="Connection">
         <Panel className="p-4">
           <p className="flex items-center justify-between text-[13px]">

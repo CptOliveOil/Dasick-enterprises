@@ -1,11 +1,14 @@
 import type { z } from 'zod';
 import { uuid } from '@/lib/ids';
 import type { StructuredSchema } from '@/lib/integrations/ai/types';
+import { newScene } from '@/lib/production/defaults';
+import { PRODUCTION_HANDLERS } from './production';
+import { resolveVideo } from '@/lib/production/resolve';
+import { thumbnailPlanResponseSchema } from '@/schemas/production';
 import {
   channelAnalysisResponseSchema,
   factCheckResponseSchema,
   productionPlanResponseSchema,
-  thumbnailResponseSchema,
   youtubeIdeasResponseSchema,
   youtubeResearchResponseSchema,
   youtubeScriptResponseSchema,
@@ -34,6 +37,13 @@ export interface ApprovalRequest {
   payload: Record<string, unknown>;
 }
 
+/** Spend a provider step actually incurred, recorded alongside AI token cost. */
+export interface ProviderSpend {
+  amount: number;
+  provider: string;
+  product: string;
+}
+
 export interface PersistResult {
   /** One line for the activity feed, written in the agent's voice. */
   summary: string;
@@ -41,15 +51,30 @@ export interface PersistResult {
   approval?: ApprovalRequest;
   /** Set when downstream steps must not run — e.g. a failed fact check. */
   blocked?: string;
+  /** Provider spend, when the step called something that costs money. */
+  spend?: ProviderSpend;
 }
 
+/**
+ * Two kinds of step run through the same engine.
+ *
+ * `ai` steps send a prompt to an AI provider and validate the structured
+ * response — the original pattern. `provider` steps call a media provider or
+ * the renderer instead, and implement `run` rather than `buildPrompt`/`persist`.
+ * Everything else — authority, context, memory, cost, logging, approvals — is
+ * identical, because it all still goes through lib/agents/engine.ts.
+ */
 export interface CapabilityHandler<T = unknown> {
   capability: string;
   label: string;
+  mode?: 'ai' | 'provider';
   schemaName: string;
+  /** Required for `ai` handlers; unused by `provider` handlers. */
   schema: StructuredSchema<T>;
-  buildPrompt(ctx: RunContext): Promise<string>;
-  persist(ctx: RunContext, data: T): Promise<PersistResult>;
+  buildPrompt?(ctx: RunContext): Promise<string>;
+  persist?(ctx: RunContext, data: T): Promise<PersistResult>;
+  /** Required for `provider` handlers. */
+  run?(ctx: RunContext): Promise<PersistResult>;
 }
 
 /** Weighted opportunity score. Competition is inverted at generation time. */
@@ -424,14 +449,45 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
       });
     }
 
+    if (!passed) {
+      return {
+        summary: `flagged ${incorrect.length} potentially incorrect ${incorrect.length === 1 ? 'claim' : 'claims'}`,
+        output: { fact_check_id: id, passed, script_id: scriptId, findings: data.findings.length },
+        blocked: `${incorrect.length} claim(s) marked potentially incorrect. The script cannot progress until they are resolved.`,
+      };
+    }
+
+    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
+    const needsReview = data.findings.filter((f) => f.verdict === 'needs_review').length;
+    const unsourced = data.findings.filter((f) => f.verdict === 'unsourced').length;
+    const warnings = [
+      needsReview > 0 ? `${needsReview} claim(s) need review` : '',
+      unsourced > 0 ? `${unsourced} claim(s) are unsourced` : '',
+    ].filter(Boolean);
+
     return {
-      summary: passed
-        ? `verified the script — ${data.findings.length} claims checked, none flagged as incorrect`
-        : `flagged ${incorrect.length} potentially incorrect ${incorrect.length === 1 ? 'claim' : 'claims'}`,
+      summary: `verified the script — ${data.findings.length} claims checked, none flagged as incorrect`,
       output: { fact_check_id: id, passed, script_id: scriptId, findings: data.findings.length },
-      blocked: passed
-        ? undefined
-        : `${incorrect.length} claim(s) marked potentially incorrect. The script cannot progress until they are resolved.`,
+      // The gate the whole production pipeline waits behind. It carries
+      // everything the operator needs to decide without leaving the screen.
+      approval: {
+        kind: 'script',
+        title: `Approve script: ${script?.title ?? ctx.task.title}`,
+        summary:
+          `${script ? `${script.word_count.toLocaleString('en-GB')} words, about ${Math.round(script.estimated_duration_seconds / 60)} minutes. ` : ''}` +
+          `${data.findings.length} claims checked, none flagged as incorrect. ` +
+          `${warnings.length > 0 ? `Outstanding: ${warnings.join('; ')}.` : 'No outstanding warnings.'} ` +
+          `Production does not begin until you approve.`,
+        payload: {
+          script_id: scriptId,
+          fact_check_id: id,
+          title: script?.title ?? null,
+          word_count: script?.word_count ?? null,
+          estimated_duration_seconds: script?.estimated_duration_seconds ?? null,
+          findings: data.findings.length,
+          warnings,
+        },
+      },
     };
   },
 };
@@ -440,11 +496,11 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
 /* YouTube: thumbnails                                                 */
 /* ------------------------------------------------------------------ */
 
-const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailResponseSchema>> = {
+const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailPlanResponseSchema>> = {
   capability: 'youtube.thumbnail.concepts',
   label: 'Thumbnail concepts',
-  schemaName: 'ThumbnailConcepts',
-  schema: thumbnailResponseSchema,
+  schemaName: 'ThumbnailPlan',
+  schema: thumbnailPlanResponseSchema,
   async buildPrompt(ctx) {
     const scriptId = resolveScriptId(ctx);
     const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
@@ -452,32 +508,45 @@ const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailResponseSchem
       baseContext(ctx),
       '',
       script ? `Video title: ${script.title}\nGoal: ${script.goal}` : '',
+      script ? `Hook: ${script.sections.find((s) => s.kind === 'hook')?.body.slice(0, 600) ?? ''}` : '',
       '',
-      'Produce four thumbnail concepts and six alternative titles.',
+      'Produce three to five thumbnail concepts and at least three alternative titles.',
       '',
       'Rules:',
-      '- One subject and one emotion per concept. Text must stay legible at 210×118 pixels.',
-      '- Explain in `reasoning` why the concept earns a click, and name its risk if it has one.',
+      '- One subject and one emotion per concept. Text must stay legible at 210×118 pixels, so four words is the practical ceiling.',
+      '- `click_psychology` must name the specific curiosity or tension the thumbnail creates — not "it looks good".',
+      '- `contrast_strategy` should say how the subject separates from the background at small sizes.',
+      '- `image_prompt` must be usable as-is by an image generation model, and must not request a recognisable real person.',
       '- Do not promise something the video does not deliver.',
+      '- `recommended_pairings` indexes into your own arrays.',
       feedbackNote(ctx),
     ].join('\n');
   },
   async persist(ctx, data) {
     const scriptId = resolveScriptId(ctx);
-    const videoId = (ctx.task.input.video_id as string | undefined) ?? null;
+    const video = await resolveVideo(ctx);
+    const videoId = video?.id ?? null;
     const rows = data.concepts.map((concept) => ({
       id: uuid(),
       business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
       video_id: videoId,
       script_id: scriptId,
+      concept_title: concept.concept_title,
       visual_description: concept.visual_description,
       subject: concept.subject,
       background: concept.background,
       composition: concept.composition,
-      text: concept.text,
-      emotion: concept.emotion,
-      colour_direction: concept.colour_direction,
-      reasoning: concept.reasoning,
+      text: concept.text_overlay,
+      emotion: concept.facial_expression || 'n/a',
+      colour_direction: concept.contrast_strategy,
+      contrast_strategy: concept.contrast_strategy,
+      click_psychology: concept.click_psychology,
+      image_prompt: concept.image_prompt,
+      confidence: concept.confidence,
+      reasoning: concept.click_psychology,
+      // No candidate image exists until an image provider produces one.
+      asset_id: null,
+      selected: false,
       is_demo: false,
       created_at: now(),
     }));
@@ -485,22 +554,18 @@ const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailResponseSchem
 
     if (videoId) {
       await ctx.store.update('youtube_videos', videoId, {
-        alternative_titles: data.alternative_titles,
+        alternative_titles: data.title_suggestions,
         updated_at: now(),
       });
     }
 
     return {
-      summary: `produced ${rows.length} thumbnail concepts and ${data.alternative_titles.length} alternative titles`,
+      summary: `produced ${rows.length} thumbnail concepts and ${data.title_suggestions.length} alternative titles`,
       output: {
         concept_ids: rows.map((r) => r.id),
-        alternative_titles: data.alternative_titles,
-      },
-      approval: {
-        kind: 'thumbnail',
-        title: 'Thumbnail set ready',
-        summary: `${rows.length} concepts and ${data.alternative_titles.length} alternative titles are ready for selection.`,
-        payload: { concept_ids: rows.map((r) => r.id), titles: data.alternative_titles },
+        alternative_titles: data.title_suggestions,
+        recommended_pairings: data.recommended_pairings,
+        video_id: videoId,
       },
     };
   },
@@ -545,22 +610,29 @@ const youtubeProduction: CapabilityHandler<z.infer<typeof productionPlanResponse
         output: { scenes: data.scenes.length, scenes_data: data.scenes },
       };
     }
-    const rows = data.scenes.map((scene) => ({
-      id: uuid(),
-      video_id: videoId,
-      scene_number: scene.scene_number,
-      duration_seconds: scene.duration_seconds,
-      narration: scene.narration,
-      visual_direction: scene.visual_direction,
-      b_roll_query: scene.b_roll_query,
-      image_prompt: scene.image_prompt,
-      video_prompt: scene.video_prompt,
-      on_screen_text: scene.on_screen_text,
-      transition: scene.transition,
-      // Assets are pending until a media provider actually produces them.
-      asset_status: 'pending' as const,
-      is_demo: false,
-    }));
+    let elapsed = 0;
+    const rows = data.scenes.map((scene) => {
+      const row = newScene({
+        video_id: videoId,
+        business_id: ctx.business?.id ?? ctx.task.business_id ?? null,
+        mission_id: ctx.task.mission_id,
+        scene_number: scene.scene_number,
+        start_time_estimate: elapsed,
+        duration_seconds: scene.duration_seconds,
+        narration: scene.narration,
+        visual_direction: scene.visual_direction,
+        b_roll_query: scene.b_roll_query,
+        image_prompt: scene.image_prompt,
+        video_prompt: scene.video_prompt,
+        on_screen_text: scene.on_screen_text,
+        transition: scene.transition,
+        // Assets are pending until a media provider actually produces them.
+        asset_status: 'pending' as const,
+        status: 'awaiting_asset' as const,
+      });
+      elapsed += scene.duration_seconds;
+      return row;
+    });
     await ctx.store.insertMany('youtube_scenes', rows);
     const total = data.scenes.reduce((sum, s) => sum + s.duration_seconds, 0);
 
@@ -809,6 +881,7 @@ const seoKeywords: CapabilityHandler<z.infer<typeof keywordResponseSchema>> = {
 /* ------------------------------------------------------------------ */
 
 const HANDLERS: CapabilityHandler<never>[] = [
+  ...PRODUCTION_HANDLERS,
   youtubeIdeas,
   youtubeResearch,
   youtubeScript,

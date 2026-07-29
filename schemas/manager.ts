@@ -15,6 +15,12 @@ export const managerPlanSchema = z.object({
   workflow: z.string().nullable().default(null),
   /** Reply shown in the Command Centre chat. */
   reply: z.string().min(10),
+  /**
+   * How many independent missions to create from this plan. "Make 3 videos" is
+   * three separate productions, each with its own cost, approvals and assets —
+   * never one oversized mission.
+   */
+  repeat: z.number().int().min(1).max(10).default(1),
   steps: z
     .array(
       z.object({
