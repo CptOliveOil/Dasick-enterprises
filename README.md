@@ -30,6 +30,7 @@ accounting.
 - [Daily operations](#daily-operations)
 - [The YouTube production pipeline](#the-youtube-production-pipeline)
 - [Islamic content](#islamic-content)
+- [Pokémon research](#pokémon-research)
 - [Galaxy architecture](#galaxy-architecture)
 - [Extending it](#extending-it)
 - [Testing](#testing)
@@ -50,7 +51,7 @@ npm run dev
 
 Open <http://localhost:3000>.
 
-With no configuration at all the application starts in **demo mode**: eighteen
+With no configuration at all the application starts in **demo mode**: nineteen
 agents across three businesses — a YouTube channel, an Etsy shop and an Islamic
 channel — with missions, live activity, approvals and finance, all seeded, all
 labelled `Demo`, and all genuinely functional. Type an instruction into the
@@ -83,11 +84,11 @@ URL and the anon key from Settings → API.
 ### 2. Run the migrations
 
 In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
-`0003_accounts_agents_islamic.sql`, `0004_operations.sql`. Paste them into the
+`0003_accounts_agents_islamic.sql`, `0004_operations.sql`, `0005_pokemon.sql`. Paste them into the
 SQL editor, or use `supabase db push`. Migration `0003` creates the owner role
 column, the role-immutability trigger and the Islamic tables; `0004` adds
 mission priority and deadlines, memory provenance and the source resolution
-table.
+table; `0005` adds the Pokémon opportunities table.
 
 ### 3. Create your owner account — safely
 
@@ -180,7 +181,7 @@ displayed again.
 2. Copy the project URL and anon key into `.env.local`.
 3. Run the migrations, in order — `0001_initial_schema.sql`,
    `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`,
-   `0004_operations.sql`. Either paste them into the SQL editor, or use the
+   `0004_operations.sql`, `0005_pokemon.sql`. Either paste them into the SQL editor, or use the
    Supabase CLI:
 
    ```bash
@@ -429,7 +430,8 @@ engine.
 
 `lib/agents/templates.ts` holds starting points — YouTube Researcher,
 Scriptwriter, Fact Checker, SEO Analyst, Competitor Researcher, Islamic Content
-Researcher, Islamic Source Checker, and a blank Custom Agent. A template is
+Researcher, Islamic Source Checker, Pokémon Researcher, and a blank Custom
+Agent. A template is
 **prefill only**: choosing one fills the form, every field stays editable, and
 what is saved is whatever was submitted. The server re-validates regardless of
 which template was chosen. No template arrives above authority level 2 — an
@@ -865,6 +867,106 @@ asserted in the tests in both directions.
 
 ---
 
+## Pokémon research
+
+One specialist agent, added on top of the existing workforce rather than beside
+a second one. The **Pokémon Researcher** finds content opportunities and hands
+them to the agents that were already there.
+
+### What it does
+
+| Capability | Does |
+| --- | --- |
+| `pokemon.research.ideas` | Content opportunities for faceless video — lore, mysteries, character and regional histories, legendary Pokémon, obscure facts, game and anime history, card history, collecting, competitive history, controversies, forgotten Pokémon, rankings, retrospectives |
+| `pokemon.tcg.research` | Trading card topics: set history, rarity systems, print runs, notable cards, collecting culture, mechanics, set retrospectives |
+| `pokemon.etsy.opportunities` | Product demand research, with intellectual-property risk assessed before a concept proceeds |
+
+Every opportunity carries the same nine fields whatever kind it is: a title
+concept, the hook as it would be spoken, a category, why someone would watch, who
+specifically it is for, a suggested length, what must be researched first, the
+researcher's own confidence, and whether it is evergreen or trend-driven. They
+share one table, `pokemon_opportunities`, so the operator reads one ranked list
+rather than three.
+
+### Two things it will not do
+
+**It does not invent market data.** Nothing here is connected to a live pricing
+source, so a price, a valuation, a graded population, an auction result or a
+claim about what is trending would be a number the agent made up — and an
+invented price is exactly the kind of thing someone acts on before discovering it
+was never real. Card *history* is knowledge and it answers freely; anything
+needing current market data is recorded with `requires_live_data` set and the
+missing source named in plain words. The check runs over what the model returned,
+not merely as an instruction in the prompt, because the case worth catching is
+the one where it was told not to and did anyway.
+
+**It does not confuse demand with permission.** Researching what people want is
+ordinary research and is reported honestly, including where the demand is for
+protected material. Whether we may *sell* something is a separate question with a
+different answer: almost always no, wherever a product would reproduce artwork,
+characters, card faces, logos or branding belonging to Nintendo, Game Freak,
+Creatures Inc. or The Pokémon Company. `lib/pokemon/policy.ts` assesses every
+product concept from its own text — not from the risk the model claimed — and a
+concept at `high` or `blocked` raises an approval naming what is protected and an
+original direction that keeps the buyer and drops the risk. A fan-art redraw is
+not treated as a way around it, because it is not one.
+
+### Handoffs
+
+The `pokemon_youtube_video` workflow is the ordinary faceless pipeline with one
+step swapped:
+
+```
+Pokémon Researcher → Scriptwriter → Fact Checker → [approve script]
+  → Voiceover Agent → Visual Director → Asset Agent
+  → Thumbnail Strategist → Video Producer → Quality Control → [approve video]
+```
+
+Only the first step is new; every step after it is the existing workflow run by
+the existing agents, and no agent is duplicated. The handoffs are real
+`handoff` activity logs, so they draw the same craft between planets in the
+galaxy as any other handoff. The script approval gate is unchanged — no
+production work and no spending until the operator has approved.
+
+### Command routing
+
+The router recognises Pokémon work and sends it to the specialist, ahead of the
+general YouTube and Etsy routes:
+
+| Instruction | Goes to |
+| --- | --- |
+| "Give me 10 Pokémon YouTube ideas." | `pokemon.research.ideas` |
+| "Research the history of Charizard cards." | `pokemon.tcg.research` |
+| "Find interesting Pokémon mysteries for YouTube." | `pokemon.research.ideas` |
+| "Create a faceless video about the strangest Pokémon lore." | `pokemon_youtube_video` |
+| "Find Pokémon TCG topics that could make good videos." | `pokemon.tcg.research` |
+| "Are there Etsy product opportunities around Pokémon?" | `pokemon.etsy.opportunities` |
+
+Routing is gated on subject *and* capability, the same way the Islamic routes
+are. A Magic: The Gathering question is not claimed, a general YouTube request
+still reaches the general researcher, an analytics question still reaches the
+Analyst, and removing the agent removes its routes with it rather than leaving
+missions nobody can run.
+
+### The planet
+
+Electric lime with a pale halo and a ring — original, energetic and
+collectible-feeling, and deliberately nothing to do with any protected artwork
+or logo. It is a distinct colour in the designed system (`voltage`, meaning
+collectible and franchise research) so the Builder can offer it too, and it
+appears in the galaxy the same way every other agent does.
+
+### Room for more
+
+The `pokemon.*` namespace is the extension point. A Pokémon Card Analyst would
+add `pokemon.card.*`, a Trend Scout `pokemon.trends.*`, an Etsy Product
+Researcher `pokemon.product.*` — each a handler appended to
+`lib/agents/pokemon/index.ts`, picked up by any agent that declares the
+capability, reachable from the same route table. **None of those exist yet**,
+and adding one would touch neither the engine, the workflows nor the galaxy.
+
+---
+
 ## Galaxy architecture
 
 Built with React Three Fiber, loaded only in the browser and only after a WebGL
@@ -1110,6 +1212,24 @@ Covers the parts where being wrong is expensive:
 - **Handoff flights** — that only recent handoffs fly, that an unparseable
   timestamp animates nothing, and that a burst of six leaves as a staggered
   convoy with never more than three craft in the air.
+- **Pokémon routing** — that each example instruction reaches the right
+  capability, that "topics that could make good videos" is read as research
+  rather than as a request to produce one, that another card game is not
+  claimed, and that removing the agent removes its routes rather than leaving a
+  mission nobody can run.
+- **Pokémon execution and handoffs** — that all three capabilities run in Demo
+  Mode and record every field, that the workflow adds exactly one new step and
+  reuses the existing agents for the rest, that a real handoff is logged from the
+  researcher to the Scriptwriter, and that the handoff carries the research
+  itself rather than row ids the next agent cannot read.
+- **Intellectual property** — that reproducing artwork, characters, branding or a
+  redraw is blocked, that naming the franchise on a product is high risk rather
+  than blocked, that an original design in the same genre is not penalised, and
+  that the recorded risk is the assessed one rather than the one the model
+  claimed.
+- **Live market data** — that prices, valuations, populations, auction results
+  and "trending now" all require a connected source, that history does not, and
+  that the refusal names what would have to be connected.
 
 ---
 

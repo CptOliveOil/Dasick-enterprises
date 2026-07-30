@@ -51,6 +51,7 @@ import type {
   SourceResolutionRecord,
   VisualRules,
 } from '@/types/islamic';
+import type { PokemonOpportunity } from '@/types/pokemon';
 
 /**
  * The single source of truth for which tables exist and what shape their rows
@@ -104,6 +105,7 @@ export interface Tables {
   islamic_source_checks: IslamicSourceCheck;
   source_resolutions: SourceResolutionRecord;
   source_policies: SourcePolicy;
+  pokemon_opportunities: PokemonOpportunity;
   visual_rules: VisualRules;
 }
 
@@ -153,6 +155,7 @@ export const TABLE_NAMES: TableName[] = [
   'provider_jobs',
   'production_budgets',
   'production_settings',
+  'pokemon_opportunities',
 ];
 
 /** Every row in every table has these. */

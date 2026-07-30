@@ -220,3 +220,31 @@ export async function makeIslamicWorkspace() {
 
   return { ...base, islamicBusiness, islamicAgents };
 }
+
+/**
+ * The production workforce plus the Pokémon Researcher, on the same channel.
+ *
+ * Deliberately additive: the specialist is one more agent alongside the
+ * existing ones, not a second pipeline. Everything after its research step is
+ * run by the agents that were already there.
+ */
+export async function makePokemonWorkspace() {
+  const base = await makeProductionWorkspace();
+  const { store, business } = base;
+
+  const pokemonResearcher = makeAgent({
+    name: 'Pokémon Researcher',
+    slug: 'pokemon-researcher',
+    business_id: business.id,
+    agent_type: 'research',
+    template_key: 'pokemon_researcher',
+    capabilities: [
+      'pokemon.research.ideas',
+      'pokemon.tcg.research',
+      'pokemon.etsy.opportunities',
+    ],
+  });
+  await store.insert('agents', pokemonResearcher);
+
+  return { ...base, pokemonResearcher };
+}

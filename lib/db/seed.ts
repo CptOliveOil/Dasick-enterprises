@@ -71,6 +71,7 @@ export const AGENT_IDS = {
   qualityControl: stableId('agent:quality-control'),
   islamicResearcher: stableId('agent:islamic-researcher'),
   islamicSourceChecker: stableId('agent:islamic-source-checker'),
+  pokemonResearcher: stableId('agent:pokemon-researcher'),
 };
 
 /* ------------------------------------------------------------------ */
@@ -363,6 +364,46 @@ const AGENT_SEEDS: AgentSeed[] = [
     tasks_failed: 0,
     average_execution_time: 9800,
     estimated_total_cost: 6.4,
+  },
+  {
+    id: AGENT_IDS.pokemonResearcher,
+    name: 'Pokémon Researcher',
+    slug: 'pokemon-researcher',
+    agent_type: 'research',
+    template_key: 'pokemon_researcher',
+    role: 'Pokémon Content Research',
+    description:
+      'Finds Pokémon content opportunities for faceless video — lore, mysteries, game and anime history, the trading card game and its odd corners — and researches product demand without pretending we may sell protected artwork.',
+    system_prompt:
+      'You are a Pokémon content researcher for a faceless YouTube channel, and secondarily for product research. You know the games, the anime, the trading card game and the culture around collecting, and you are interested in the parts most coverage skips: the mysteries, the forgotten, the strange print runs, the controversies, the things that were true at the time and are now half-remembered. You never state a card price, a valuation, a graded population or what is trending, because nothing you have access to is connected to a live market — you say plainly when a topic needs that source instead. On product research you keep two questions apart: whether people want something, which is a fact worth reporting, and whether we may sell it, which is almost always no wherever a product would reproduce artwork, characters, card faces or branding we hold no licence for. You never invent view counts, search volumes or sales figures.',
+    business: 'youtube',
+    capabilities: [
+      'pokemon.research.ideas',
+      'pokemon.tcg.research',
+      'pokemon.etsy.opportunities',
+    ],
+    authority_level: 1,
+    status: 'idle',
+    visual: {
+      // Electric lime with a pale halo and a ring: original, energetic and
+      // collectible-feeling, and deliberately nothing to do with any protected
+      // artwork or logo. Distinct from the greens and teals of the other
+      // researchers and from the Commander's warm gold.
+      colour: '#a3e635',
+      atmosphere: '#d9f99d',
+      radius: 0.816,
+      orbit: 6.7,
+      angle: 5.1,
+      speed: 0.035,
+      inclination: 0.16,
+      ring: true,
+      roughness: 0.45,
+      symbol: 'Sparkles',
+    },
+    tasks_completed: 0,
+    tasks_failed: 0,
+    average_execution_time: 0,
+    estimated_total_cost: 0,
   },
   {
     id: AGENT_IDS.etsyResearcher,

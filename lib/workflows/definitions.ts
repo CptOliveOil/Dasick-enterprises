@@ -171,6 +171,109 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     updated_at: timestamp,
   },
   {
+    id: stableId('workflow:pokemon_youtube_video'),
+    owner_id: null,
+    business_id: null,
+    key: 'pokemon_youtube_video',
+    name: 'Pokémon YouTube Video',
+    description:
+      'Pokémon research from the specialist, then the ordinary faceless production pipeline: script, fact check, narration, visuals, assets, thumbnail, metadata, assembly and quality control.',
+    steps: [
+      {
+        // The only step that is new. Everything after it is the existing
+        // pipeline, run by the existing agents — the specialist replaces the
+        // general research step and changes nothing else.
+        key: 'research',
+        title: 'Pokémon research',
+        capability: 'pokemon.research.ideas',
+        depends_on: [],
+        requires_approval: false,
+      },
+      {
+        key: 'script',
+        title: 'Write script',
+        capability: 'youtube.script.write',
+        depends_on: ['research'],
+        requires_approval: false,
+      },
+      {
+        key: 'fact_check',
+        title: 'Fact check',
+        capability: 'youtube.script.factcheck',
+        depends_on: ['script'],
+        // The same gate as every other video: no production work and no
+        // spending until the operator has approved the script.
+        requires_approval: true,
+        approval_label: 'Approve script',
+      },
+      {
+        key: 'voiceover_plan',
+        title: 'Plan narration',
+        capability: 'youtube.voiceover.plan',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'voiceover',
+        title: 'Generate narration',
+        capability: 'youtube.voiceover.generate',
+        depends_on: ['voiceover_plan'],
+        requires_approval: false,
+      },
+      {
+        key: 'visual_plan',
+        title: 'Plan visuals',
+        capability: 'youtube.visual_plan',
+        depends_on: ['voiceover'],
+        requires_approval: false,
+      },
+      {
+        key: 'assets',
+        title: 'Source scene assets',
+        capability: 'youtube.asset_generate',
+        depends_on: ['visual_plan'],
+        requires_approval: false,
+      },
+      {
+        key: 'thumbnail_concepts',
+        title: 'Thumbnail concepts',
+        capability: 'youtube.thumbnail.concepts',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'thumbnail_images',
+        title: 'Render thumbnail candidates',
+        capability: 'youtube.thumbnail.generate',
+        depends_on: ['thumbnail_concepts'],
+        requires_approval: false,
+      },
+      {
+        key: 'metadata',
+        title: 'Write metadata',
+        capability: 'youtube.metadata',
+        depends_on: ['fact_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'assembly',
+        title: 'Assemble video',
+        capability: 'youtube.video_assemble',
+        depends_on: ['assets', 'metadata'],
+        requires_approval: false,
+      },
+      {
+        key: 'quality_check',
+        title: 'Quality check',
+        capability: 'youtube.quality_check',
+        depends_on: ['assembly', 'thumbnail_images'],
+        requires_approval: false,
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  {
     id: stableId('workflow:islamic_youtube_video'),
     owner_id: null,
     business_id: null,

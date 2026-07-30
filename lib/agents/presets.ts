@@ -79,6 +79,13 @@ export const COLOUR_PRESETS: ColourPreset[] = [
     colour: '#0f766e',
     atmosphere: '#5eead4',
   },
+  {
+    key: 'voltage',
+    label: 'Voltage',
+    meaning: 'Collectible and franchise research',
+    colour: '#a3e635',
+    atmosphere: '#d9f99d',
+  },
 ];
 
 export interface SizePreset {

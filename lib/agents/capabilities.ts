@@ -5,6 +5,7 @@ import { newScene } from '@/lib/production/defaults';
 import { PRODUCTION_HANDLERS } from './production';
 import { ISLAMIC_HANDLERS } from './islamic';
 import { OPERATIONS_HANDLERS } from './operations';
+import { POKEMON_HANDLERS } from './pokemon';
 import { resolveVideo } from '@/lib/production/resolve';
 import { thumbnailPlanResponseSchema } from '@/schemas/production';
 import {
@@ -886,6 +887,7 @@ const HANDLERS: CapabilityHandler<never>[] = [
   ...PRODUCTION_HANDLERS,
   ...ISLAMIC_HANDLERS,
   ...OPERATIONS_HANDLERS,
+  ...POKEMON_HANDLERS,
   youtubeIdeas,
   youtubeResearch,
   youtubeScript,

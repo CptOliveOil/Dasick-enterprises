@@ -246,14 +246,25 @@ function sanitisePlan(plan: ManagerPlan, available: Set<string>): ManagerPlan | 
 
 interface Route {
   match: RegExp;
-  /**
-   * `business` is a slug the plan should be scoped to. `businessKind` scopes to
-   * the first business of a kind whose workforce has the route's capabilities —
-   * used by the Islamic routes, which must land on whichever channel actually
-   * has Islamic agents rather than on a hard-coded slug.
-   */
+  /** A slug the plan should be scoped to. */
   business: string | null;
+  /**
+   * An extra subject-matter test the instruction must pass.
+   *
+   * Matching the shape of a request is not enough for a specialist. "Make a
+   * video" looks identical whether the subject is Islamic history, Pokémon lore
+   * or anything else, and sending it to the wrong specialist is worse than
+   * having no specialist: it adds steps the work does not need and fills that
+   * agent's memory with a subject it does not serve.
+   */
+  subject?: (instruction: string) => boolean;
+  /** The route is only viable when some agent actually provides this. */
   requiresCapability?: string;
+  /**
+   * Scope to whichever channel actually holds the Islamic capabilities, rather
+   * than to a hard-coded slug.
+   */
+  islamicChannel?: boolean;
   build: (instruction: string) => Omit<ManagerPlan, 'business' | 'repeat'>;
 }
 
@@ -271,6 +282,31 @@ const ISLAMIC_SUBJECT =
 function isIslamic(instruction: string): boolean {
   return ISLAMIC_SUBJECT.test(instruction);
 }
+
+/**
+ * Words that mean the subject really is Pokémon.
+ *
+ * Deliberately franchise-specific. "TCG" and "cards" on their own are not
+ * enough — a Magic: The Gathering question is not this agent's work — so the
+ * instruction has to name the franchise, one of its regions, or one of its
+ * characters before a Pokémon route will take it.
+ */
+const POKEMON_SUBJECT =
+  /\b(pok[eé]mon|pok[eé]dex|pok[eé]\s?ball|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|mewtwo|snorlax|gengar|lucario|greninja|umbreon|rayquaza|arceus|magikarp|gyarados|dragonite|blastoise|venusaur|team\s+rocket|gym\s+leader|kanto|johto|hoenn|sinnoh|unova|kalos|alola|galar|paldea)\b/i;
+
+function isPokemon(instruction: string): boolean {
+  return POKEMON_SUBJECT.test(instruction);
+}
+
+/**
+ * "Create a faceless video about …" and nothing looser.
+ *
+ * The article is load-bearing. Without it, "topics that could make good videos"
+ * reads as a request to produce a video, and a request for research would build
+ * a fifteen-step production mission instead.
+ */
+const MAKE_ONE_VIDEO =
+  /\b(create|make|produce|prepare|build)\s+(?:me\s+)?(?:a|an|one|another)\s+(?:new\s+|faceless\s+|youtube\s+|full\s+|long[- ]form\s+)*(video|documentary|short)\b/i;
 
 /** "Create 3 videos this week" → 3. Anything unbounded falls back to one. */
 function countVideos(instruction: string): number {
@@ -306,6 +342,8 @@ const ROUTES: Route[] = [
     match: /(check|verify|is\s+(the|this)).*(hadith|hadeeth|narration|ayah|verse|citation|source|authentic)/i,
     business: null,
     requiresCapability: 'islamic.source_verify',
+    subject: isIslamic,
+    islamicChannel: true,
     build: (instruction) => ({
       mission_title: 'Verify religious sources',
       objective: `Check the religious sources in this material. Instruction: "${instruction}"`,
@@ -328,6 +366,8 @@ const ROUTES: Route[] = [
     match: /(review|check).*(script|draft).*(islam|accuracy|religio)|islamic\s+(accuracy|review)/i,
     business: null,
     requiresCapability: 'islamic.script_review',
+    subject: isIslamic,
+    islamicChannel: true,
     build: (instruction) => ({
       mission_title: 'Islamic script review',
       objective: `Review a script for Islamic accuracy. Instruction: "${instruction}"`,
@@ -352,6 +392,8 @@ const ROUTES: Route[] = [
     match: /(create|make|produce|prepare|new|build).*(video|documentary|short)/i,
     business: null,
     requiresCapability: 'islamic.research',
+    subject: isIslamic,
+    islamicChannel: true,
     build: (instruction) => ({
       mission_title: `Islamic video${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
       objective: `Research, verify and produce an Islamic educational video. Instruction: "${instruction}"`,
@@ -366,6 +408,8 @@ const ROUTES: Route[] = [
     match: /(idea|topic|content plan|plan).*(islam|muslim|ramadan|quran|hadith|seerah|salah)|islamic.*(idea|content)/i,
     business: null,
     requiresCapability: 'islamic.content_plan',
+    subject: isIslamic,
+    islamicChannel: true,
     build: (instruction) => ({
       mission_title: 'Plan Islamic content',
       objective: `Plan Islamic educational content. Instruction: "${instruction}"`,
@@ -387,6 +431,8 @@ const ROUTES: Route[] = [
     match: /(research|explain|about|study).*(islam|muslim|quran|qur'an|surah|ayah|hadith|seerah|prophet|ramadan|salah|dua|tawakkul|fiqh)/i,
     business: null,
     requiresCapability: 'islamic.research',
+    subject: isIslamic,
+    islamicChannel: true,
     build: (instruction) => ({
       mission_title: `Islamic research${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
       objective: `Research an Islamic topic and verify its sources. Instruction: "${instruction}"`,
@@ -394,6 +440,109 @@ const ROUTES: Route[] = [
       reply:
         'Mission created. The Islamic Researcher is preparing a source-classified package, then the Source Checker verifies it and brings it to you for approval.',
       steps: [],
+    }),
+  },
+  // Pokémon routes sit ahead of the general YouTube and Etsy routes so a
+  // Pokémon instruction reaches the specialist rather than the generalist, and
+  // behind the Islamic ones, which are gated on a subject these cannot match.
+  // Each still requires the capability to exist, so removing the agent removes
+  // the routes with it.
+  {
+    // Product research first: it is the narrowest reading, and an instruction
+    // that mentions Etsy is not asking for a video.
+    match: /\b(etsy|product|printable|print[- ]on[- ]demand|merch|sticker|poster|shop|store|listing|sell|selling)\b/i,
+    business: 'etsy',
+    subject: isPokemon,
+    requiresCapability: 'pokemon.etsy.opportunities',
+    build: (instruction) => ({
+      mission_title: `Pokémon product research${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Research Pokémon-related product demand and assess what we could legitimately sell. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        `Mission created. The Pokémon Researcher is looking for ${n(instruction, 6)} product opportunities. ` +
+        'It reports demand honestly, including where the demand is for artwork and characters we hold no licence to sell — ' +
+        'anything in that category is flagged for your approval with what is protected and an original direction that keeps the buyer.',
+      steps: [
+        {
+          capability: 'pokemon.etsy.opportunities',
+          title: `Research ${n(instruction, 6)} Pokémon product opportunities`,
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { count: n(instruction, 6), instructions: instruction },
+        },
+      ],
+    }),
+  },
+  {
+    // A full video, when the instruction genuinely asks for one to be made.
+    match: MAKE_ONE_VIDEO,
+    business: 'youtube',
+    subject: isPokemon,
+    requiresCapability: 'pokemon.research.ideas',
+    build: (instruction) => ({
+      mission_title: `Pokémon video${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Research and produce a faceless Pokémon video. Instruction: "${instruction}"`,
+      workflow: 'pokemon_youtube_video',
+      reply:
+        'Mission created. The Pokémon Researcher goes first and hands its research to the Scriptwriter, then the Fact Checker. ' +
+        'I will stop for your approval on the script before any production work or spending begins — after that the existing ' +
+        'Voiceover Agent, Visual Director, Asset Agent, Thumbnail Strategist and Video Producer take it through to a rendered video, ' +
+        'and Quality Control brings it back to you for final approval.',
+      steps: [],
+    }),
+  },
+  {
+    // Card work. Ahead of the general ideas route so "TCG topics that could
+    // make good videos" lands on the card research rather than on ideas.
+    match: /\b(card|cards|tcg|trading\s+card|booster|holo|holographic|rarity|set|sets|print\s+run|graded|collecting|collector)\b/i,
+    business: 'youtube',
+    subject: isPokemon,
+    requiresCapability: 'pokemon.tcg.research',
+    build: (instruction) => ({
+      mission_title: `Pokémon card research${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Research Pokémon trading card history and find topics that could carry a video. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        `Mission created. The Pokémon Researcher is working through ${n(instruction, 8)} card topics — set history, rarity systems, print runs and collecting stories. ` +
+        'It will not quote prices, valuations or grading populations: nothing here is connected to a live market, so any topic that needs those is marked as needing a source rather than answered from memory.',
+      steps: [
+        {
+          capability: 'pokemon.tcg.research',
+          title: `Research ${n(instruction, 8)} Pokémon card topics`,
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { count: n(instruction, 8), instructions: instruction },
+        },
+      ],
+    }),
+  },
+  {
+    // Everything else about Pokémon that is asking for research or ideas.
+    // Deliberately not a catch-all: an analytics question about a Pokémon
+    // channel still belongs to the Analyst.
+    match: /\b(idea|ideas|topic|topics|opportunit|research|find|suggest|mystery|mysteries|lore|history|histories|fact|facts|ranking|rankings|retrospective|forgotten|obscure|controvers|story|stories|explain|deep\s?dive)\b/i,
+    business: 'youtube',
+    subject: isPokemon,
+    requiresCapability: 'pokemon.research.ideas',
+    build: (instruction) => ({
+      mission_title: `Pokémon content research${topicOf(instruction) ? `: ${topicOf(instruction)}` : ''}`,
+      objective: `Find Pokémon content opportunities for faceless video. Instruction: "${instruction}"`,
+      workflow: null,
+      reply:
+        `Mission created. The Pokémon Researcher is finding ${n(instruction, 10)} opportunities across lore, mysteries, game and anime history, cards and collecting. ` +
+        'Each one comes back with a hook, who it is for, how long it should run and what has to be established before a word is written.',
+      steps: [
+        {
+          capability: 'pokemon.research.ideas',
+          title: `Research ${n(instruction, 10)} Pokémon content opportunities`,
+          description: instruction,
+          depends_on: [],
+          requires_approval: false,
+          input: { count: n(instruction, 10), instructions: instruction },
+        },
+      ],
     }),
   },
   {
@@ -520,27 +669,25 @@ function routeLocally(
   available: Set<string>,
   islamicBusinessSlug: string | null,
 ): ManagerPlan | null {
-  const islamic = isIslamic(instruction);
-
   const route = ROUTES.find((candidate) => {
     if (!candidate.match.test(instruction)) return false;
-    if (candidate.requiresCapability) {
-      // An Islamic route only applies when the subject really is Islamic *and*
-      // an agent exists that can do the work. Either alone is not enough: a
-      // general history video must not be slowed by a source check it does not
-      // need, and a route with no agent behind it would create a stalled
-      // mission.
-      if (!islamic) return false;
-      if (!available.has(candidate.requiresCapability)) return false;
-      if (!islamicBusinessSlug) return false;
+    // A specialist route applies only when the subject really is its subject
+    // *and* an agent exists that can do the work. Either alone is not enough: a
+    // general history video must not be slowed by a religious source check it
+    // does not need, and a route with no agent behind it would create a stalled
+    // mission nobody can run.
+    if (candidate.subject && !candidate.subject(instruction)) return false;
+    if (candidate.requiresCapability && !available.has(candidate.requiresCapability)) {
+      return false;
     }
+    if (candidate.islamicChannel && !islamicBusinessSlug) return false;
     return true;
   });
   if (!route) return null;
 
   const built = route.build(instruction);
   const repeat = countVideos(instruction);
-  const business = route.requiresCapability
+  const business = route.islamicChannel
     ? islamicBusinessSlug
     : route.business
       ? (businesses.find((b) => b.slug === route.business)?.slug ?? null)
