@@ -5,9 +5,10 @@ across several businesses — and presents that workforce as a living solar
 system rather than a grid of cards.
 
 Each planet is a real agent. Its glow is its actual status, the ring around it
-means an approval is genuinely outstanding, and the beam between two planets is
-drawn from a recorded handoff. The galaxy is the primary interface; every part
-of it is also reachable through ordinary lists, tables and keyboard navigation.
+means an approval is genuinely outstanding, and when a small craft flies from one
+planet to another it is because that handoff was recorded. The galaxy is the
+primary interface; every part of it is also reachable through ordinary lists,
+tables and keyboard navigation.
 
 Underneath it is a conventional, testable system: a single agent execution
 engine, a database-driven workflow state machine, Zod-validated structured
@@ -872,26 +873,66 @@ check. `components/galaxy/`:
 | File | Responsibility |
 | --- | --- |
 | `Galaxy.tsx` | Entry point: device detection, hover card, view controls, mobile and no-WebGL fallbacks |
-| `GalaxyScene.tsx` | The scene, camera commands and orbit controls |
-| `Planet.tsx` | One agent — orbit, rotation, status glow, attention ring, task count |
-| `CommandCore.tsx` | The star at the centre; pulses while a command is running |
-| `Connections.tsx` | Handoff beams, drawn from recent `handoff` activity logs |
+| `GalaxyScene.tsx` | The scene, the viewport-filling camera, gentle focus and orbit controls |
+| `layout.ts` | Where planets sit and how fast they move — presentation only, never stored |
+| `Planet.tsx` | One agent — orbit, spin, surface, atmosphere, status glow, attention ring, label |
+| `CommandCore.tsx` | The star at the centre; breathes slowly, quickens while a command is running |
+| `Rockets.tsx` | Handoff craft, flown from recent `handoff` activity logs |
+| `flights.ts` | When a handoff is worth flying and when the next craft may leave |
 | `Starfield.tsx` | Background stars and orbit paths |
 | `MobileGalaxy.tsx` | A simplified SVG system for small screens |
 | `quality.ts` | Device capability detection and quality tiers |
 | `textures.ts` | Procedural planet surfaces and glow sprites, generated once and cached |
+| `hash.ts` | Turns an agent id into a stable appearance |
 
 **Everything visible is bound to state.** Glow comes from `agent.status`. The
-amber ring appears only while an approval is pending. A beam is drawn only while
-a real handoff log is recent, and fades as that log ages.
+amber ring appears only while an approval is pending. A craft flies only when a
+real `handoff` log is recent — there is no idle traffic and no decorative
+flight, so the galaxy never shows work moving that did not move.
+
+**Layout is presentation, not data.** `agent.visual` is the operator's choice —
+colour, relative size, whether it has a ring. `layout.ts` turns that into the
+geometry the scene renders: agents are dealt evenly onto at most five orbits so
+the outer edge is never one lonely planet a long way from everything, planets are
+drawn about half again their stored radius, and every planet on a ring shares one
+orbital speed so ring-mates hold their spacing forever. Change these numbers and
+only the picture changes.
+
+**Camera.** The resting position is computed from the system's actual size and
+the shape of the viewport, never hard-coded. Seen from above the ecliptic a disc
+does not project to a centred ellipse — its near edge looms larger than its far
+edge — so the aim point is nudged towards the near edge until both reaches match
+and the distance is solved against that. Clicking a planet is a push-in to about
+three-quarters of the resting distance, not a close-up: the system stays in
+frame, and the camera then tracks the planet as it orbits without overriding
+whatever angle or zoom the operator chose.
+
+**Handoff craft.** A small self-illuminated vessel in the sender's colour follows
+a curved path from the sending planet to the receiving one over about five and a
+half seconds, easing away and settling on arrival, then fades. Bursts are queued
+rather than fired together: at most three in the air at once and never two
+launches inside a beat, so six simultaneous handoffs leave as a spaced convoy.
+The launch point is captured once so the craft leaves from where the sender
+actually was; the destination is read live so it lands on the receiver rather
+than where the receiver used to be.
+
+**Labels.** Every planet carries its name and status as DOM text over the canvas,
+so both stay sharp and constant in size however far the camera is. That is all
+the default view shows; role, business and current task wait for hover, and
+everything else waits for selection. Selecting a planet enlarges it, rings it and
+pushes the rest into the background by darkening rather than by transparency — a
+half-transparent planet shows the starfield through itself and stops reading as a
+solid world.
 
 **Performance.** Three quality tiers are chosen from pointer type, viewport,
 core count and reported memory. Touch devices and narrow viewports always get
-the cheap profile. Textures are generated once per colour and shared.
+the cheap profile, which drops the per-planet labels and allows one craft in the
+air at a time. Textures are generated once per colour and surface pattern and
+shared; nothing in the scene allocates per frame.
 
 **Reduced motion.** With `prefers-reduced-motion: reduce`, orbital movement,
-rotation and pulses stop. State is still fully conveyed by colour, ring and
-text.
+rotation, pulses and handoff craft stop. State is still fully conveyed by colour,
+ring, label and text.
 
 **Accessibility.** The galaxy is never the only way to do anything. Every agent,
 task, mission and approval is reachable through the sidebar as a list or table.
@@ -1061,6 +1102,14 @@ Covers the parts where being wrong is expensive:
   quick commands that name only things that exist.
 - **Deployment safety** — that the public-demo banner fires on a real deployment
   with no authentication and stays quiet locally.
+- **Galaxy layout** — that every agent gets exactly one planet, that orbits are
+  filled evenly rather than leaving an outer straggler, that ring-mates are spaced
+  apart and share one speed so they never converge, that every orbit is slow
+  enough to read as calm, and that an agent's appearance is identical on every
+  load.
+- **Handoff flights** — that only recent handoffs fly, that an unparseable
+  timestamp animates nothing, and that a burst of six leaves as a staggered
+  convoy with never more than three craft in the air.
 
 ---
 

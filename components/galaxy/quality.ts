@@ -4,42 +4,56 @@ export interface QualityProfile {
   tier: 'high' | 'medium' | 'low';
   sphereSegments: [number, number];
   starCount: number;
-  /** Particles drawn along each active handoff beam. */
-  beamParticles: number;
+  /** Handoff craft allowed in the air at once. The rest wait their turn. */
+  maxRockets: number;
+  /** Glow sprites trailing each craft. */
+  rocketTrail: number;
   dpr: [number, number];
   orbitRings: boolean;
   atmospheres: boolean;
+  /** Name-and-status labels under every planet. */
+  labels: boolean;
 }
 
 const PROFILES: Record<QualityProfile['tier'], QualityProfile> = {
   high: {
     tier: 'high',
-    sphereSegments: [48, 32],
-    starCount: 1400,
-    beamParticles: 14,
+    // Planets are drawn considerably larger than they used to be, so the
+    // silhouette has to hold up close to the camera.
+    sphereSegments: [56, 36],
+    starCount: 1200,
+    maxRockets: 3,
+    rocketTrail: 7,
     dpr: [1, 2],
     orbitRings: true,
     atmospheres: true,
+    labels: true,
   },
   medium: {
     tier: 'medium',
-    sphereSegments: [32, 20],
-    starCount: 800,
-    beamParticles: 10,
+    sphereSegments: [40, 26],
+    starCount: 750,
+    maxRockets: 2,
+    rocketTrail: 5,
     dpr: [1, 1.5],
     orbitRings: true,
     atmospheres: true,
+    labels: true,
   },
   low: {
     tier: 'low',
-    sphereSegments: [24, 16],
-    starCount: 500,
-    beamParticles: 6,
+    sphereSegments: [28, 18],
+    starCount: 450,
+    maxRockets: 1,
+    rocketTrail: 3,
     dpr: [1, 1],
-    // Twelve thin ring meshes cost almost nothing and they are what makes the
-    // scene read as a solar system rather than scattered spheres.
+    // Thin ring meshes cost almost nothing and they are what makes the scene
+    // read as a solar system rather than scattered spheres.
     orbitRings: true,
     atmospheres: true,
+    // A DOM label per planet is the one thing that genuinely costs on a weak
+    // device, and the hover card carries the same information.
+    labels: false,
   },
 };
 

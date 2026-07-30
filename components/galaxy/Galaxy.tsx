@@ -91,7 +91,13 @@ export function Galaxy({ className }: { className?: string }) {
     return null;
   }, [selection, tasks, businessFilter, agents]);
 
-  const hoveredAgent = agents.find((a) => a.id === hoveredAgentId) ?? null;
+  // Not for the planet that is already selected: the inspector is open beside
+  // the galaxy showing strictly more, and a card repeating the name and status
+  // over the top of it is the kind of clutter the labels were meant to remove.
+  const hoveredAgent =
+    hoveredAgentId && hoveredAgentId !== selectedAgentId
+      ? (agents.find((a) => a.id === hoveredAgentId) ?? null)
+      : null;
   const hoveredTask =
     tasks.find(
       (t) =>
@@ -184,7 +190,8 @@ export function Galaxy({ className }: { className?: string }) {
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden items-end justify-between gap-4 p-4 md:flex">
+        {/* Above the planet labels, which sit at z-index 20 inside the canvas. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 hidden items-end justify-between gap-4 p-4 md:flex">
           <Legend />
           <div className="pointer-events-auto flex gap-2">
             <Button size="sm" variant="secondary" onClick={() => command('reset')}>

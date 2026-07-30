@@ -25,10 +25,12 @@ export function CommandCore({
 
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
-    if (core.current && animate) core.current.rotation.y += delta * 0.06;
+    if (core.current && animate) core.current.rotation.y += delta * 0.022;
     if (corona.current) {
-      const base = active ? 7.6 : 6.4;
-      const pulse = animate ? Math.sin(t * (active ? 3.2 : 1.1)) * (active ? 0.65 : 0.18) : 0;
+      const base = active ? 8.4 : 7.4;
+      // A slow breath at rest. It quickens only while a command is genuinely
+      // being processed, and even then it is a heartbeat, not a strobe.
+      const pulse = animate ? Math.sin(t * (active ? 1.5 : 0.5)) * (active ? 0.5 : 0.16) : 0;
       corona.current.scale.setScalar(base + pulse);
     }
   });
@@ -39,14 +41,14 @@ export function CommandCore({
         decay 1 rather than the physical 2: the outer orbits sit four times
         further out than the inner ones, and a square falloff leaves them black.
       */}
-      <pointLight intensity={26} distance={95} decay={1} color="#ffd8a0" />
+      <pointLight intensity={34} distance={120} decay={1} color="#ffd8a0" />
       <mesh ref={core}>
-        <sphereGeometry args={[1.05, ...quality.sphereSegments]} />
+        <sphereGeometry args={[1.55, ...quality.sphereSegments]} />
         <meshBasicMaterial color="#fff4d6" />
       </mesh>
       {[1.18, 1.42, 1.75].map((scale, i) => (
         <mesh key={scale} scale={scale}>
-          <sphereGeometry args={[1.05, ...quality.sphereSegments]} />
+          <sphereGeometry args={[1.55, ...quality.sphereSegments]} />
           <meshBasicMaterial
             color={i === 0 ? '#ffcf7a' : i === 1 ? '#f5a524' : '#e2761b'}
             transparent
@@ -57,20 +59,20 @@ export function CommandCore({
           />
         </mesh>
       ))}
-      <sprite ref={corona} scale={6.4}>
+      <sprite ref={corona} scale={7.4}>
         <spriteMaterial
           map={halo}
           transparent
-          opacity={active ? 0.95 : 0.75}
+          opacity={active ? 0.92 : 0.7}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />
       </sprite>
-      <sprite scale={13}>
+      <sprite scale={15}>
         <spriteMaterial
           map={halo}
           transparent
-          opacity={0.24}
+          opacity={0.18}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />

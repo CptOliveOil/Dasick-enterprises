@@ -17,7 +17,8 @@ export function Starfield({ count, animate }: { count: number; animate: boolean 
 
     for (let i = 0; i < count; i += 1) {
       // Shell distribution keeps stars behind the planets, never inside them.
-      const radius = 42 + Math.random() * 46;
+      // The inner edge sits well outside the outermost orbit.
+      const radius = 54 + Math.random() * 46;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
@@ -39,13 +40,15 @@ export function Starfield({ count, animate }: { count: number; animate: boolean 
   }, [count]);
 
   useFrame((_, delta) => {
-    if (points.current && animate) points.current.rotation.y += delta * 0.004;
+    // Barely there: enough that the background is not a photograph, slow enough
+    // that you never catch it moving.
+    if (points.current && animate) points.current.rotation.y += delta * 0.0016;
   });
 
   return (
     <points ref={points} geometry={geometry}>
       <pointsMaterial
-        size={0.42}
+        size={0.5}
         sizeAttenuation
         vertexColors
         transparent
@@ -62,11 +65,13 @@ export function OrbitRings({ radii }: { radii: number[] }) {
     <group rotation={[Math.PI / 2, 0, 0]}>
       {radii.map((radius) => (
         <mesh key={radius}>
-          <ringGeometry args={[radius - 0.012, radius + 0.012, 128]} />
+          <ringGeometry args={[radius - 0.014, radius + 0.014, 160]} />
           <meshBasicMaterial
             color="#4a5c8f"
             transparent
-            opacity={0.45}
+            // Quieter than before: with fewer, wider-spaced orbits the rings
+            // only need to suggest the structure, not draw attention to it.
+            opacity={0.3}
             side={THREE.DoubleSide}
             depthWrite={false}
           />

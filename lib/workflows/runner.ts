@@ -61,7 +61,7 @@ export async function runMission(
       ? ((await store.get('tasks', results.at(-1)!.taskId))?.agent_id ?? null)
       : null;
 
-    // A handoff is what draws the beam between two planets in the galaxy.
+    // A handoff is what flies a craft between two planets in the galaxy.
     if (previousAgentId && task.agent_id && previousAgentId !== task.agent_id) {
       const from = await store.get('agents', previousAgentId);
       const to = await store.get('agents', task.agent_id);
