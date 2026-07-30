@@ -52,6 +52,7 @@ import type {
   VisualRules,
 } from '@/types/islamic';
 import type { PokemonOpportunity } from '@/types/pokemon';
+import type { AiBudget } from '@/types/budget';
 
 /**
  * The single source of truth for which tables exist and what shape their rows
@@ -106,6 +107,7 @@ export interface Tables {
   source_resolutions: SourceResolutionRecord;
   source_policies: SourcePolicy;
   pokemon_opportunities: PokemonOpportunity;
+  ai_budgets: AiBudget;
   visual_rules: VisualRules;
 }
 
@@ -156,6 +158,7 @@ export const TABLE_NAMES: TableName[] = [
   'production_budgets',
   'production_settings',
   'pokemon_opportunities',
+  'ai_budgets',
 ];
 
 /** Every row in every table has these. */

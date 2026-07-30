@@ -24,6 +24,7 @@ accounting.
 - [Environment variables](#environment-variables)
 - [Supabase setup](#supabase-setup)
 - [Demo mode](#demo-mode)
+- [Going live: real mode](#going-live-real-mode)
 - [How it works](#how-it-works)
 - [Accounts, roles and access](#accounts-roles-and-access)
 - [Custom agents](#custom-agents)
@@ -84,11 +85,13 @@ URL and the anon key from Settings → API.
 ### 2. Run the migrations
 
 In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
-`0003_accounts_agents_islamic.sql`, `0004_operations.sql`, `0005_pokemon.sql`. Paste them into the
+`0003_accounts_agents_islamic.sql`, `0004_operations.sql`, `0005_pokemon.sql`,
+`0006_real_mode.sql`. Paste them into the
 SQL editor, or use `supabase db push`. Migration `0003` creates the owner role
 column, the role-immutability trigger and the Islamic tables; `0004` adds
 mission priority and deadlines, memory provenance and the source resolution
-table; `0005` adds the Pokémon opportunities table.
+table; `0005` adds the Pokémon opportunities table; `0006` adds the account AI
+spending ceiling.
 
 ### 3. Create your owner account — safely
 
@@ -154,7 +157,7 @@ Every variable is optional. Nothing is displayed as connected unless it is.
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL. Set with the anon key to leave demo mode. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key. Safe in the browser — Row Level Security is what protects data. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only. Bypasses RLS; used for trusted background work. |
-| `ANTHROPIC_API_KEY` | Primary AI provider. Without it agents run simulated. |
+| `ANTHROPIC_API_KEY` | Primary AI provider. Without it, agents run simulated in Demo Mode and **stop** in a real workspace. |
 | `ANTHROPIC_MODEL` | Default model. Defaults to `claude-sonnet-4-5`. |
 | `OPENAI_API_KEY`, `GOOGLE_AI_API_KEY` | Optional alternative providers. |
 | `YOUTUBE_API_KEY` | YouTube Data API. Required for live channel analytics. |
@@ -181,7 +184,7 @@ displayed again.
 2. Copy the project URL and anon key into `.env.local`.
 3. Run the migrations, in order — `0001_initial_schema.sql`,
    `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`,
-   `0004_operations.sql`, `0005_pokemon.sql`. Either paste them into the SQL editor, or use the
+   `0004_operations.sql`, `0005_pokemon.sql`, `0006_real_mode.sql`. Either paste them into the SQL editor, or use the
    Supabase CLI:
 
    ```bash
@@ -256,6 +259,76 @@ must never look like one that does.
 The renderer is the exception, and honestly so: ffmpeg runs locally on real
 input and produces a real file, so its output is not marked simulated even in
 demo mode. Settings shows it as `Connected — Local ffmpeg`.
+
+---
+
+## Going live: real mode
+
+Command Centre runs in one of two modes, and the difference is not cosmetic.
+
+**Demo Mode** is what you get with no configuration: an in-memory store seeded
+with clearly-labelled demo data, no accounts, and a simulated AI provider. It is
+free, nothing persists, and everything is badged.
+
+**Real mode** begins the moment Supabase is configured. From then on the rules
+change in three ways that matter.
+
+### Nothing is ever simulated
+
+In a real workspace a missing provider **stops the task and names what is
+missing**. It does not stand in, and it does not produce something that looks
+like a model's answer:
+
+```
+Anthropic is not connected. Add ANTHROPIC_API_KEY to .env.local and restart
+the app. Nothing was simulated — this workspace is real, so a missing provider
+stops the task rather than inventing an answer.
+```
+
+There is one provider path (`resolveProvider` in `lib/integrations/ai/index.ts`)
+and one execution engine, so this is not a mode the engine can be talked out of.
+The media providers already worked this way; the AI provider now does too.
+
+### Nothing spends until you set a ceiling
+
+`ai_budgets` holds one row per account and **has no default**. Until the owner
+sets a monthly ceiling in **Settings → AI budget** and turns execution on, no
+paid model call runs at all. A limit nobody chose is not a limit.
+
+Four figures, all yours:
+
+| Setting | Does |
+| --- | --- |
+| Monthly ceiling | Hard stop across the whole workforce. Approval does not override it. |
+| Per-mission ceiling | Stops one runaway mission from spending the whole month. |
+| Ask me above | A single step estimated at or above this stops for approval first. |
+| Warn me at | Where warnings begin, as a share of the ceiling. |
+
+Estimates are made **before** the call, deliberately pessimistically, and an
+unknown model is priced as the most expensive one — guessing low is how a
+ceiling gets passed. Recorded spend comes from the token counts the API actually
+returned.
+
+**An agent cannot raise its own ceiling.** That is structural, not a promise in
+a prompt: the permission (`ai_budget.manage`) is held by the owner alone and not
+by admin, the only route that writes the table requires it, agents run inside
+tasks and have no session at all, and the row-level policy is owner-only.
+
+### Your workspace starts clean
+
+A fresh Supabase account is genuinely empty, so **Settings** offers a one-time
+setup that creates your workforce — the agents, their prompts, their
+capabilities and their planets — and **nothing else**. No missions, no activity,
+no revenue, no costs, no analytics, and every agent on zero completed tasks. The
+demo's invented history stays in the demo, where invented revenue and invented
+performance figures cannot be mistaken for measurements.
+
+### Knowing which you are in
+
+**Settings → System status** labels every service `CONNECTED`, `SIMULATED` or
+`NOT CONNECTED`, with no fourth possibility and no ambiguity: Supabase, owner
+login, Anthropic, web research, YouTube, Etsy, voice, images, video, stock media
+and the renderer.
 
 ---
 
@@ -1230,6 +1303,21 @@ Covers the parts where being wrong is expensive:
 - **Live market data** — that prices, valuations, populations, auction results
   and "trending now" all require a connected source, that history does not, and
   that the refusal names what would have to be connected.
+- **No silent simulation** — that a real workspace with no Anthropic key fails
+  the task, names the variable to set, writes nothing, and that Demo Mode still
+  simulates so the pipeline can be exercised for free.
+- **Spending controls** — that nothing spends before a ceiling is set, that the
+  demo's figures are never treated as a real budget, that the monthly ceiling is
+  a hard stop no approval overrides, that a runaway mission is caught by the
+  per-mission ceiling, that last month's spend does not eat this month's, and
+  that estimates never price an unknown model as cheap.
+- **Owner-only budget** — that `ai_budget.manage` is held by the owner alone and
+  that no seeded agent declares a capability that could reach it.
+- **Clean start** — that provisioning creates the workforce and zero rows of
+  history, zeroes every agent's counters, marks nothing as demo data, and is
+  idempotent.
+- **Persistence** — that a mission, its tasks, their output, the recorded cost
+  and the activity trail are all rows rather than variables.
 
 ---
 

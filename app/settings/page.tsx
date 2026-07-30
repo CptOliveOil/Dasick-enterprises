@@ -5,6 +5,7 @@ import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations
 import { describeMediaProviders, simulationAllowed } from '@/lib/integrations/providers/registry';
 import { ProviderPanel } from '@/components/settings/ProviderPanel';
 import { SETTINGS_TABS } from '@/components/settings/tabs';
+import { WorkspaceSetup } from '@/components/settings/WorkspaceSetup';
 import { AUTHORITY_DESCRIPTIONS } from '@/lib/agents/authority';
 import { Badge, Panel } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
@@ -46,6 +47,10 @@ export default async function SettingsPage() {
       tabs={SETTINGS_TABS}
       wide
     >
+      {/* A real workspace with no agents cannot do anything yet — this is the
+          one thing to do first, so it sits above everything else. */}
+      {supabaseConfigured && agents.length === 0 && <WorkspaceSetup />}
+
       <Section title="Profile">
         <Panel className="p-4">
           <dl className="grid gap-4 sm:grid-cols-3">

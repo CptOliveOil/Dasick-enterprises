@@ -1,7 +1,12 @@
 import 'server-only';
 import { uuid } from '@/lib/ids';
 import type { DataStore } from '@/lib/db/tables';
-import { getProvider, providerIsLive } from '@/lib/integrations/ai';
+import {
+  ProviderNotConnected,
+  providerIsLive,
+  resolveProvider,
+} from '@/lib/integrations/ai';
+import { checkAiSpend, estimateCallCost } from '@/lib/finance/ai-budget';
 import { StructuredOutputError } from '@/lib/integrations/ai/types';
 import type { Agent, Approval, Task } from '@/types/domain';
 import { logActivity, notify } from './activity';
@@ -129,8 +134,33 @@ export async function runAgent(
         return fail(store, ownerId, task, agent, `"${capability}" has no prompt implementation.`);
       }
       const prompt = await handler.buildPrompt(ctx);
-      const provider = getProvider(agent.provider);
+      // Throws in a real workspace when nothing is connected, rather than
+      // quietly returning invented text. Caught below and reported as what it
+      // is: a missing connection, not a failure of the work.
+      const provider = resolveProvider(agent.provider);
       simulated = !providerIsLive(agent.provider);
+
+      // Money is only at stake once the call actually reaches a model. A
+      // simulated run costs nothing and is not gated, so Demo Mode needs no
+      // budget at all.
+      if (!simulated) {
+        const decision = await checkAiSpend(store, ownerId, {
+          estimate: estimateCallCost(agent.model, agent.max_tokens, prompt.length),
+          missionId: task.mission_id,
+        });
+        if (!decision.allowed) {
+          // An approval re-queues this same step with spending authorised for
+          // it alone, using the gate the workflow engine already has. Anything
+          // else is a ceiling, and a ceiling is not something approval can
+          // override.
+          if (decision.requiresApproval && task.input.spend_authorised !== true) {
+            return spendGate(store, ownerId, task, agent, decision.reason);
+          }
+          if (!decision.requiresApproval) {
+            return fail(store, ownerId, task, agent, decision.reason);
+          }
+        }
+      }
 
       const result = await provider.generateStructured({
         system: agent.system_prompt,
@@ -236,13 +266,62 @@ export async function runAgent(
     };
   } catch (error) {
     const message =
-      error instanceof StructuredOutputError
-        ? `${error.message}`
-        : error instanceof Error
-          ? error.message
-          : 'Unknown error';
+      error instanceof ProviderNotConnected
+        ? error.message
+        : error instanceof StructuredOutputError
+          ? `${error.message}`
+          : error instanceof Error
+            ? error.message
+            : 'Unknown error';
     return fail(store, ownerId, task, agent, message);
   }
+}
+
+/**
+ * Stops a step for the operator because of what it would cost, without
+ * spending anything.
+ *
+ * Deliberately the same shape as every other approval: the task waits, the
+ * agent waits, and approving re-queues this exact step with spending
+ * authorised for it alone. `resolveApproval` already understands that payload,
+ * so there is no second path for money.
+ */
+async function spendGate(
+  store: DataStore,
+  ownerId: string,
+  task: Task,
+  agent: Agent,
+  reason: string,
+): Promise<RunAgentResult> {
+  const timestamp = new Date().toISOString();
+  const approvalId = await raiseApproval(store, ownerId, agent, task, {
+    kind: 'spend',
+    title: `Authorise spend — ${task.title}`,
+    summary: reason,
+    payload: { authorise_spend: true, task_id: task.id },
+  });
+
+  await store.update('tasks', task.id, {
+    status: 'approval',
+    progress: 0,
+    error: reason,
+  });
+  await store.update('agents', agent.id, {
+    status: 'needs_approval',
+    current_task_id: null,
+    updated_at: timestamp,
+  });
+
+  return {
+    taskId: task.id,
+    status: 'approval',
+    summary: reason,
+    output: {},
+    error: null,
+    approvalId,
+    blocked: reason,
+    simulated: false,
+  };
 }
 
 async function fail(

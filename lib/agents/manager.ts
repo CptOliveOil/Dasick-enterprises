@@ -1,7 +1,7 @@
 import 'server-only';
 import { uuid } from '@/lib/ids';
 import type { DataStore } from '@/lib/db/tables';
-import { getProvider, providerIsLive } from '@/lib/integrations/ai';
+import { providerIsLive, resolveProvider } from '@/lib/integrations/ai';
 import { managerPlanSchema, type ManagerPlan } from '@/schemas/manager';
 import type { Agent, Business, CommandMessage, Mission, Task } from '@/types/domain';
 import { listCapabilities } from './capabilities';
@@ -171,12 +171,12 @@ async function appendManagerMessage(
 
 async function planWithModel(
   store: DataStore,
-  manager: { provider: Parameters<typeof getProvider>[0]; model: string; system_prompt: string; temperature: number; max_tokens: number },
+  manager: { provider: Parameters<typeof resolveProvider>[0]; model: string; system_prompt: string; temperature: number; max_tokens: number },
   instruction: string,
   businesses: Business[],
   capabilities: { capability: string; label: string }[],
 ): Promise<ManagerPlan> {
-  const provider = getProvider(manager.provider);
+  const provider = resolveProvider(manager.provider);
   const prompt = [
     'The operator has given you an instruction. Produce a plan.',
     '',

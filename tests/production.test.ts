@@ -199,11 +199,15 @@ describe('production pipeline in Demo Mode', () => {
   }, 180_000);
 });
 
-describe('real mode with providers disconnected', () => {
+describe('media providers disconnected', () => {
   it('blocks the voiceover step and names the missing provider', async () => {
-    // Supabase configured means this is not Demo Mode, so no simulation.
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon-key');
+    // Simulated media off while the AI stays simulated, which isolates the
+    // property under test: a missing *media* provider must stop the step rather
+    // than invent audio. Turning Supabase on instead would make this a real
+    // workspace, where the script step would fail for want of Anthropic long
+    // before the pipeline ever reached narration — that behaviour has its own
+    // tests in real-mode.test.ts.
+    vi.stubEnv('DISABLE_SIMULATED_MEDIA', 'true');
     vi.resetModules();
 
     const { store, business } = await makeProductionWorkspace();

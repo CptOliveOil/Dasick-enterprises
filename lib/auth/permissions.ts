@@ -21,6 +21,11 @@ export const PERMISSIONS = [
   'integrations.manage',
   'finance.view',
   'budgets.manage',
+  // Deliberately separate from `budgets.manage`, and held by the owner alone.
+  // Production budgets cap what one video may cost; this is the ceiling on the
+  // whole account's model spending, and raising it is the one budget decision
+  // that must always be a person who holds the card.
+  'ai_budget.manage',
   'content.publish',
   'settings.manage',
   'account.manage',
@@ -48,7 +53,15 @@ const ADMIN: Permission[] = [
  * that leaves the building irreversibly, so it stays with the account holder
  * even when a team exists.
  */
-const OWNER: Permission[] = [...ADMIN, 'content.publish', 'account.manage'];
+const OWNER: Permission[] = [
+  ...ADMIN,
+  'content.publish',
+  'account.manage',
+  // The account's AI ceiling. Held by the owner alone, deliberately not by
+  // admin: raising the limit on model spending is a decision for whoever holds
+  // the card, and an agent has no role at all.
+  'ai_budget.manage',
+];
 
 const MATRIX: Record<AccountRole, readonly Permission[]> = {
   owner: OWNER,

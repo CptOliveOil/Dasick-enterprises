@@ -130,7 +130,7 @@ function businesses(): Business[] {
 /* Agents                                                              */
 /* ------------------------------------------------------------------ */
 
-interface AgentSeed {
+export interface AgentSeed {
   id: string;
   name: string;
   slug: string;
@@ -157,7 +157,7 @@ interface AgentSeed {
  * violets are language work, oranges are visual work, blues are production and
  * measurement, copper is money.
  */
-const AGENT_SEEDS: AgentSeed[] = [
+export const AGENT_SEEDS: AgentSeed[] = [
   {
     id: AGENT_IDS.commander,
     name: 'Commander',
