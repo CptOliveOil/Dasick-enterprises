@@ -3,7 +3,6 @@ import { uuid } from '@/lib/ids';
 import { newAgent } from '@/lib/agents/factory';
 import { defaultBudget, defaultProductionSettings } from '@/lib/production/defaults';
 import { defaultSourcePolicy, defaultVisualRules } from '@/lib/islamic/policy';
-import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
 import { AGENT_SEEDS, type AgentSeed } from '@/lib/db/seed';
 import type { DataStore } from '@/lib/db/tables';
 import type { Business } from '@/types/domain';
@@ -31,7 +30,6 @@ import type { Business } from '@/types/domain';
 export interface ProvisionResult {
   businesses: number;
   agents: number;
-  workflows: number;
   /** True when the workspace already had agents and nothing was created. */
   alreadyProvisioned: boolean;
 }
@@ -93,25 +91,24 @@ export async function provisionWorkspace(
 
   const existingAgents = await store.list('agents', { where: { owner_id: ownerId } });
   if (existingAgents.length > 0) {
-    return {
-      businesses: 0,
-      agents: 0,
-      workflows: 0,
-      alreadyProvisioned: true,
-    };
+    return { businesses: 0, agents: 0, alreadyProvisioned: true };
   }
 
   const timestamp = new Date().toISOString();
 
-  // Workflow definitions are shared, ownerless rows. Insert them only if this
-  // database has not already got them.
-  const existingWorkflows = await store.list('workflow_definitions', {});
-  let workflows = 0;
-  if (existingWorkflows.length === 0) {
-    await store.insertMany('workflow_definitions', WORKFLOW_DEFINITIONS);
-    workflows = WORKFLOW_DEFINITIONS.length;
-  }
-
+  // Note what is deliberately absent here: the built-in workflow definitions.
+  //
+  // They are code, not data. `createMission` resolves a workflow key through
+  // `findWorkflow` in lib/workflows/definitions.ts, so the running application
+  // never reads the `workflow_definitions` table for a built-in one, and
+  // writing rows for them would achieve nothing except drift between the two.
+  //
+  // Nor could it: the shared library is `owner_id is null`, and migration 0003
+  // deliberately makes those rows read-only — insert is permitted only when
+  // `owner_id is not null and auth.uid() = owner_id`. That policy is correct
+  // and stays. A signed-in user must not be able to inject a workflow into a
+  // library every account reads. The table exists for *owner-created* custom
+  // workflows, which carry an owner_id and are covered by the same policy.
   const existingBusinesses = await store.list('businesses', { where: { owner_id: ownerId } });
   const byKey = new Map<string, string>();
   for (const existing of existingBusinesses) {
@@ -164,7 +161,6 @@ export async function provisionWorkspace(
   return {
     businesses: created,
     agents: agents.length,
-    workflows,
     alreadyProvisioned: false,
   };
 }

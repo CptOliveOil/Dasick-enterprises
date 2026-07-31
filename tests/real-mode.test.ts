@@ -4,6 +4,9 @@ import { runAgent } from '@/lib/agents/engine';
 import { handleCommand } from '@/lib/agents/manager';
 import { createMission } from '@/lib/workflows/engine';
 import { provisionWorkspace } from '@/lib/workspace/provision';
+import { logActivity } from '@/lib/agents/activity';
+import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
+import { RlsMemoryStore } from './rls-store';
 import { AGENT_SEEDS } from '@/lib/db/seed';
 import { PERMISSIONS, can } from '@/lib/auth/permissions';
 import {
@@ -447,3 +450,172 @@ async function recordSpend(
     created_at: createdAt,
   } as never);
 }
+
+/* ------------------------------------------------------------------ */
+/* Provisioning under real Row Level Security                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These run against `RlsMemoryStore`, which enforces the policies the
+ * migrations actually create rather than accepting every write.
+ *
+ * Provisioning shipped once with an insert into `workflow_definitions` — a
+ * table whose shared, ownerless rows migration 0003 deliberately makes
+ * read-only. `MemoryStore` accepted it, every test passed, and it failed the
+ * first time a real operator clicked the button. That is the gap this closes.
+ */
+describe('provisioning a fresh real workspace under RLS', () => {
+  it('completes without the database refusing a single write', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    const result = await provisionWorkspace(store, OWNER_ID);
+
+    expect(result.alreadyProvisioned).toBe(false);
+    expect(result.businesses).toBe(3);
+    expect(result.agents).toBeGreaterThan(0);
+  });
+
+  it('writes nothing into the shared workflow library', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await provisionWorkspace(store, OWNER_ID);
+    // Built-in workflows are code, resolved through findWorkflow. The table is
+    // for owner-created workflows, and provisioning creates none.
+    expect(await store.list('workflow_definitions', {})).toHaveLength(0);
+  });
+
+  it('still runs a mission afterwards, because workflows come from code', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await provisionWorkspace(store, OWNER_ID);
+
+    // The end-to-end proof that the removed insert was never load-bearing: a
+    // workflow-driven mission plans correctly with an empty table.
+    const businesses = await store.list('businesses', { where: { owner_id: OWNER_ID } });
+    const youtube = businesses.find((business) => business.slug === 'youtube')!;
+    const created = await createMission(store, {
+      ownerId: OWNER_ID,
+      businessId: youtube.id,
+      title: 'Pokémon video',
+      objective: 'Check the workflow resolves',
+      workflowKey: 'pokemon_youtube_video',
+    });
+    // Twelve steps, resolved from the code definition, with the first assigned
+    // to the Pokémon Researcher the provisioner just created.
+    expect(created.tasks.length).toBeGreaterThan(1);
+    expect(created.tasks[0]!.step_key).toBe('research');
+
+    const agents = await store.list('agents', { where: { owner_id: OWNER_ID } });
+    const researcher = agents.find((agent) => agent.slug === 'pokemon-researcher')!;
+    expect(created.tasks[0]!.agent_id).toBe(researcher.id);
+  });
+
+  it('still refuses an ownerless workflow row, so the library stays immutable', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await expect(
+      store.insert('workflow_definitions', {
+        ...WORKFLOW_DEFINITIONS[0]!,
+        id: uuid(),
+      }),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('refuses a workflow row belonging to somebody else', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await expect(
+      store.insert('workflow_definitions', {
+        ...WORKFLOW_DEFINITIONS[0]!,
+        id: uuid(),
+        owner_id: uuid(),
+      }),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('allows the owner their own custom workflow, which is what the table is for', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    const row = await store.insert('workflow_definitions', {
+      ...WORKFLOW_DEFINITIONS[0]!,
+      id: uuid(),
+      owner_id: OWNER_ID,
+      key: 'my_custom_workflow',
+    });
+    expect(row.owner_id).toBe(OWNER_ID);
+  });
+
+  it('keeps every provisioned row inside the owner, so isolation holds', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await provisionWorkspace(store, OWNER_ID);
+
+    for (const table of [
+      'businesses',
+      'agents',
+      'production_budgets',
+      'production_settings',
+      'source_policies',
+      'visual_rules',
+    ] as const) {
+      const rows = await store.list(table, {});
+      expect(rows.length, table).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect((row as { owner_id: string }).owner_id, table).toBe(OWNER_ID);
+      }
+    }
+  });
+
+  it('refuses a write for a different owner, so the double is genuinely enforcing', async () => {
+    // Guards the guard: a policy double that accepted everything would make
+    // every test above meaningless.
+    const store = new RlsMemoryStore(OWNER_ID);
+    await expect(
+      provisionWorkspace(store, uuid()),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('is idempotent under RLS too, creating nothing on a second run', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    const first = await provisionWorkspace(store, OWNER_ID);
+    const second = await provisionWorkspace(store, OWNER_ID);
+
+    expect(second.alreadyProvisioned).toBe(true);
+    expect(second.agents).toBe(0);
+    expect(second.businesses).toBe(0);
+    expect(await store.list('agents', {})).toHaveLength(first.agents);
+    expect(await store.list('businesses', {})).toHaveLength(first.businesses);
+  });
+
+  it('finishes on a retry after a partial run, rather than duplicating', async () => {
+    // A crash between the businesses and the agents leaves a workspace with
+    // channels and no workforce. Clicking setup again must complete it, not
+    // create a second set of channels.
+    const store = new RlsMemoryStore(OWNER_ID);
+    await provisionWorkspace(store, OWNER_ID, { include: ['youtube'] });
+    const afterFirst = await store.list('businesses', {});
+
+    // Simulate the crash: drop the agents, keep the channel.
+    for (const agent of await store.list('agents', {})) {
+      await store.remove('agents', agent.id);
+    }
+
+    const retry = await provisionWorkspace(store, OWNER_ID, { include: ['youtube'] });
+    expect(retry.businesses).toBe(0);
+    expect(retry.agents).toBeGreaterThan(0);
+    expect(await store.list('businesses', {})).toHaveLength(afterFirst.length);
+  });
+
+  it('logs the setup activity the route writes, without a policy refusal', async () => {
+    const store = new RlsMemoryStore(OWNER_ID);
+    await provisionWorkspace(store, OWNER_ID);
+    // The route logs this immediately afterwards; activity_logs is owner-scoped
+    // and the row carries nulls for business, mission, task and agent.
+    await logActivity(store, {
+      ownerId: OWNER_ID,
+      businessId: null,
+      missionId: null,
+      taskId: null,
+      agentId: null,
+      kind: 'system',
+      message: 'Workspace set up',
+      metadata: {},
+    });
+    const logs = await store.list('activity_logs', {});
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.owner_id).toBe(OWNER_ID);
+  });
+});

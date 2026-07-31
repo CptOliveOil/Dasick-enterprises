@@ -30,9 +30,28 @@ export function WorkspaceSetup() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? 'Could not set up the workspace.');
-      setDone(body.message);
+      // Defensive on both sides. The route always answers with JSON, but a
+      // proxy, a crash or a redirect to the sign-in page would not, and
+      // "Unexpected end of JSON input" is a worse thing to show someone than
+      // the status code that actually came back.
+      const raw = await response.text();
+      let body: { message?: string; error?: string; detail?: string } = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(
+          response.status === 401
+            ? 'Your session has expired. Sign in again and retry.'
+            : `The server replied with ${response.status} and no details. Nothing was changed.`,
+        );
+      }
+      if (!response.ok) {
+        throw new Error(
+          [body.error, body.detail].filter(Boolean).join(' — ') ||
+            'Could not set up the workspace.',
+        );
+      }
+      setDone(body.message ?? 'Workspace set up.');
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not set up the workspace.');

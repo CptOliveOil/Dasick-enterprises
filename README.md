@@ -314,6 +314,21 @@ a prompt: the permission (`ai_budget.manage`) is held by the owner alone and not
 by admin, the only route that writes the table requires it, agents run inside
 tasks and have no session at all, and the row-level policy is owner-only.
 
+### Built-in workflows are code, not data
+
+`createMission` resolves a workflow key through `findWorkflow` in
+`lib/workflows/definitions.ts`. The `workflow_definitions` table is **not** read
+for a built-in workflow and provisioning writes nothing to it — the shared
+library (`owner_id is null`) is deliberately read-only under RLS, because a
+signed-in user must not be able to inject a workflow into a library every
+account reads. The table exists for owner-created custom workflows, which carry
+an `owner_id` and are covered by the ordinary owner policy.
+
+`tests/rls-store.ts` transcribes the migrations' policies into a store that
+enforces them, so a write Postgres would refuse fails in CI rather than the
+first time an operator clicks a button. When a migration changes a policy,
+change it there too.
+
 ### Your workspace starts clean
 
 A fresh Supabase account is genuinely empty, so **Settings** offers a one-time
@@ -1318,6 +1333,12 @@ Covers the parts where being wrong is expensive:
   idempotent.
 - **Persistence** — that a mission, its tasks, their output, the recorded cost
   and the activity trail are all rows rather than variables.
+- **Provisioning under real RLS** — run against a store that enforces the
+  migrations' actual policies: that setup completes without a single refusal,
+  writes nothing into the shared workflow library, still resolves a
+  workflow-driven mission from code afterwards, keeps every row inside the
+  owner, refuses a write for anybody else, and finishes a partial run on retry
+  without duplicating a channel.
 
 ---
 
