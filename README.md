@@ -338,6 +338,27 @@ no revenue, no costs, no analytics, and every agent on zero completed tasks. The
 demo's invented history stays in the demo, where invented revenue and invented
 performance figures cannot be mistaken for measurements.
 
+### Reviewing what you are approving
+
+No approval asks for a decision on work it will not show. `lib/approvals/review.ts`
+turns an approval into the thing it is about, and `GET /api/approvals/:id/review`
+serves it — reading what is already stored, never calling a provider and never
+regenerating anything, so reviewing a decision is free and does not change what
+is being reviewed.
+
+It is one system for every kind, not a component per domain. A resolver is three
+facts — which payload key holds the ids, which table they are in, which column
+reads as a title — and everything else is derived from the row: which fields
+exist, what they are called, whether a value wants a line or a paragraph. Ids can
+also point at a *parent*, so an approval carrying only `video_id` still shows the
+thumbnail concepts hanging off it.
+
+The important property is the fallback. When no resolver matches, the payload is
+rendered as itself; when the rows are gone, the approval's own snapshot is used
+and labelled as a snapshot. There is no path that produces an approval you cannot
+read, which is the whole point — a summary like "found 5 opportunities" with no
+way to see the five is not a decision, it is a rubber stamp.
+
 ### Knowing which you are in
 
 **Settings → System status** labels every service `CONNECTED`, `SIMULATED` or

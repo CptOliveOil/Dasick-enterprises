@@ -278,9 +278,14 @@ export function AgentInspector({ agent, onClose }: { agent: Agent; onClose?: () 
 
         {tab === 'history' && (
           <div className="space-y-2">
-            {tasks.length === 0 && (
+            {/* Both, and only "nothing yet" when both are genuinely empty. The
+                bare count this replaced could read "0 activity entries" beside
+                real work, and "has not run a task yet" while three entries sat
+                unshown — a history that reports a number nobody can check is
+                worse than no history. */}
+            {tasks.length === 0 && activity.length === 0 && (
               <p className="text-[13px] text-[var(--color-ink-faint)]">
-                {agent.name} has not run a task yet.
+                {agent.name} has not run anything yet.
               </p>
             )}
             {tasks.slice(0, 20).map((task) => (
@@ -298,9 +303,28 @@ export function AgentInspector({ agent, onClose }: { agent: Agent; onClose?: () 
                 )}
               </div>
             ))}
-            <p className="pt-2 text-[11px] text-[var(--color-ink-faint)]">
-              {pluralise(activity.length, 'activity entry', 'activity entries')} recorded.
-            </p>
+            {activity.length > 0 && (
+              <>
+                <p className="pt-2 text-[11px] uppercase tracking-[0.08em] text-[var(--color-ink-faint)]">
+                  {pluralise(activity.length, 'activity entry', 'activity entries')}
+                </p>
+                <ul className="space-y-1">
+                  {activity.slice(0, 20).map((entry) => (
+                    <li
+                      key={entry.id}
+                      className="rounded-lg border border-[var(--color-edge)] bg-white/[0.015] px-2.5 py-2"
+                    >
+                      <p className="text-[12px] leading-snug text-[var(--color-ink-muted)]">
+                        {entry.message}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-[var(--color-ink-faint)]">
+                        {entry.kind.replace(/_/g, ' ')} · {formatRelativeTime(entry.created_at)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         )}
       </div>

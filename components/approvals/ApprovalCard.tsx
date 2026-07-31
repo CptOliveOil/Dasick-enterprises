@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Badge, Button, DemoNotice, inputClass } from '@/components/ui';
 import { formatMoneyPrecise } from '@/lib/utils';
 import { SourceResolution } from './SourceResolution';
+import { ApprovalReview } from './ApprovalReview';
 import { approvalOutcomes, explainApproval } from '@/lib/operations/needs-you';
 import type { Approval } from '@/types/domain';
 
@@ -97,6 +98,13 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
       </p>
 
       <ApprovalDetail approval={approval} compact={compact} />
+
+      {/* The work itself. Shown for every kind except the source gate, which
+          has its own per-claim resolution UI immediately above. Nobody should
+          be asked to approve something they cannot read. */}
+      {approval.kind !== 'source' && (
+        <ApprovalReview approvalId={approval.id} autoLoad={!compact} />
+      )}
 
       {resolved ? (
         <p className="mt-2.5 text-[12px] text-[var(--color-ink-faint)]">
