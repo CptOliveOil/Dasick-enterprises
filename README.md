@@ -34,6 +34,7 @@ accounting.
 - [Pokémon research](#pokémon-research)
 - [Galaxy architecture](#galaxy-architecture)
 - [Approvals: the editorial review](#approvals-the-editorial-review)
+- [Resolving the canonical script](#resolving-the-canonical-script)
 - [Business Intelligence Memory](#business-intelligence-memory)
 - [Extending it](#extending-it)
 - [Testing](#testing)
@@ -1304,6 +1305,79 @@ so the "after" column reads as the script rather than as fragments.
   stored zip with correct CRC32s, so it opens without a warning dialog.
 - **PDF** — the browser's own print-to-PDF, with a print stylesheet in
   `app/globals.css` that turns the page into a document.
+
+---
+
+## Resolving the canonical script
+
+A mission failed at its revision step with "No script was supplied to revise",
+while the approval screen reported that the original records were gone. Both
+messages were misleading. **Nothing in Command Centre deletes scripts** — there
+is no `remove` call against `youtube_scripts` anywhere in the codebase, RLS uses
+the same expression for `using` and `with check` so a row it let you write is a
+row it lets you read, and retry only touches failed steps.
+
+The script was never *found*. Every step resolved it for itself from ambient
+context, and each one failed differently and quietly:
+
+| Step | On a miss | Consequence |
+| --- | --- | --- |
+| Fact check | substituted the string `(script unavailable)` | produced a real fact-check row and a real approval for a script it never read — hence "1 claim checked" |
+| Revise | threw "No script was supplied to revise" | one message for two unrelated faults: nothing supplied, versus supplied but not found |
+| Approval review | fell back to the payload snapshot | told the operator the records were gone |
+
+So the visible symptom appeared two steps after the fault, pointing at the wrong
+thing entirely.
+
+### One resolver
+
+`lib/workflows/script-resolution.ts` is now the only code allowed to answer
+"which script is this mission working on?". It tries, in order:
+
+1. `task.input.script_id` — what the step was explicitly handed.
+2. **Any** earlier step's output, not just the one keyed `script`. A rework step
+   writes its own key and is the newer draft.
+3. The id inside the script approval — following the pointer, which is not the
+   same as reading the snapshot.
+4. The mission's own tasks, joined to `youtube_scripts.task_id`. The mission owns
+   its scripts whether or not any reference to them survived.
+
+Ids are validated as uuids first, so an empty string is never queried with.
+
+### The archive layer
+
+If a candidate id has no head row, the resolver rebuilds it from
+`youtube_script_versions` — append-only, written by exactly two steps, and the
+most durable record of the work in the system. The rebuilt row is written back
+so the next step finds a row rather than repeating the rebuild, and
+`restoredFromArchive` reports that it happened.
+
+### Failing loudly
+
+When nothing resolves, `ScriptUnavailable` names every source it tried, the id it
+considered, and what it found. A verification step with nothing to verify now
+fails instead of verifying a placeholder.
+
+### Tracing a mission
+
+`GET /api/missions/<id>/trace` returns the mission graph edge by edge: for every
+step, its input ids, output ids and approval payload ids, each checked against
+the database. It separates the three causes that look identical from the outside
+— the row was removed, the row was never written, the id was never valid — and
+lists every script the mission owns, found by walking its tasks rather than by
+following references, so a script nothing points at still appears.
+
+### Two related fixes found on the way
+
+- **`getStore()` no longer substitutes demo data.** With Supabase configured and
+  no readable session it used to silently return the seeded in-memory store
+  under a demo owner id. Every read then came back null with no error — which is
+  indistinguishable from the records having been deleted. It now throws
+  `NotSignedIn`, and routes answer 401.
+- **Approving no longer depends on the script row existing.** `applyDomainEffects`
+  updated `youtube_scripts` unguarded, so a missing row meant the operator could
+  not record a decision at all. It resolves through the archive now, and if the
+  script genuinely cannot be found the decision is still recorded.
 
 ---
 

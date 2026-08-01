@@ -58,10 +58,34 @@ export async function getStore(): Promise<StoreContext> {
         };
       }
     }
+    // Supabase is configured, so this workspace is real — and a real workspace
+    // must never be silently served the seeded demo dataset. That fallback used
+    // to exist here, and it is indistinguishable from data loss: every read
+    // returns null with no error, so a script written moments earlier reads
+    // back as "the record is gone".
+    //
+    // Failing here instead means an expired session shows a sign-in error,
+    // which is what it is.
+    throw new NotSignedIn();
   }
   const store = memoryStore();
   await ensureSeeded(store);
   return { store, ownerId: DEMO_OWNER_ID, isDemo: true };
+}
+
+/**
+ * No usable session against a configured Supabase project.
+ *
+ * Its own type so routes can answer 401 rather than 500 — the request was fine,
+ * the caller simply is not signed in any more.
+ */
+export class NotSignedIn extends Error {
+  constructor() {
+    super(
+      'Your session has expired. Sign in again to continue — nothing was changed, and no demo data was substituted for your workspace.',
+    );
+    this.name = 'NotSignedIn';
+  }
 }
 
 export { DEMO_OWNER_ID };

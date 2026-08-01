@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getStore, DEMO_OWNER_ID } from '@/lib/db';
+import { getStore, DEMO_OWNER_ID, NotSignedIn } from '@/lib/db';
 import { config } from '@/lib/config';
 import type { DataStore } from '@/lib/db/tables';
 import type { AccountRole, Profile } from '@/types/domain';
@@ -114,6 +114,11 @@ export async function withPermission<T>(
     if (error instanceof PermissionError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
+    // An expired session against a real workspace. 401, not 500 — and never a
+    // silent switch to demo data, which is what used to happen here.
+    if (error instanceof NotSignedIn) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
     throw error;
   }
   return handler(session);
@@ -135,6 +140,9 @@ export async function guardPermission(
   } catch (error) {
     if (error instanceof PermissionError) {
       return { response: NextResponse.json({ error: error.message }, { status: 403 }) };
+    }
+    if (error instanceof NotSignedIn) {
+      return { response: NextResponse.json({ error: error.message }, { status: 401 }) };
     }
     throw error;
   }

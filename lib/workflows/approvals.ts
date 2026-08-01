@@ -4,6 +4,7 @@ import { logActivity, notify } from '@/lib/agents/activity';
 import type { Approval, ApprovalStatus } from '@/types/domain';
 import { recomputeMission, releaseUnblockedTasks } from './engine';
 import { scheduleRework } from '@/lib/approvals/rework';
+import { resolveMissionScript } from './script-resolution';
 import { recordMissionOutcome } from '@/lib/memory/business';
 
 export type ApprovalDecision = 'approve' | 'reject' | 'request_changes';
@@ -259,15 +260,27 @@ async function applyDomainEffects(
       break;
     }
     case 'script': {
-      const scriptId =
-        typeof approval.payload.script_id === 'string' ? approval.payload.script_id : null;
-      if (scriptId) {
-        await store.update('youtube_scripts', scriptId, {
+      // Resolved rather than read straight off the payload, so a lost head row
+      // is rebuilt from the archive instead of taking the decision down with
+      // it. This used to be an unguarded update: a missing script meant the
+      // operator could not record an approval at all, which turned one bad row
+      // into a stuck mission.
+      const resolved = await resolveMissionScript(store, {
+        taskInput: { script_id: approval.payload.script_id },
+        previousOutputs: {},
+        missionId: approval.mission_id,
+        businessId: approval.business_id,
+      }).catch(() => null);
+
+      if (resolved) {
+        await store.update('youtube_scripts', resolved.script.id, {
           status: approved ? 'approved' : decision === 'reject' ? 'rejected' : 'draft',
           updated_at: timestamp,
         });
         // Production may only begin once the script is approved.
-        const videos = await store.list('youtube_videos', { where: { script_id: scriptId } });
+        const videos = await store.list('youtube_videos', {
+          where: { script_id: resolved.script.id },
+        });
         for (const video of videos) {
           await store.update('youtube_videos', video.id, {
             stage: approved ? 'voiceover' : 'script',
@@ -277,6 +290,9 @@ async function applyDomainEffects(
           });
         }
       }
+      // No else. The operator's decision is already recorded on the approval
+      // itself; failing here would discard a decision they have made because of
+      // a record they cannot see.
       break;
     }
     case 'source': {

@@ -33,6 +33,11 @@ import {
   type RunContext,
 } from './context';
 import { optionalId, requireId } from '@/lib/db/validate';
+import {
+  recordScriptVersion,
+  resolveMissionScript,
+  type ScriptResolution,
+} from '@/lib/workflows/script-resolution';
 
 /**
  * The business this run belongs to.
@@ -324,14 +329,7 @@ const youtubeScript: CapabilityHandler<z.infer<typeof youtubeScriptResponseSchem
       updated_at: timestamp,
     });
 
-    await ctx.store.insert('youtube_script_versions', {
-      id: uuid(),
-      script_id: scriptId,
-      version: 1,
-      sections,
-      note: 'Initial draft',
-      created_at: timestamp,
-    });
+    await recordScriptVersion(ctx.store, scriptId, 1, sections, 'Initial draft');
 
     return {
       summary: `completed a ${wordCount.toLocaleString('en-GB')}-word script — "${data.title}"`,
@@ -350,9 +348,10 @@ const youtubeScriptRevise: CapabilityHandler<z.infer<typeof youtubeScriptRespons
   schemaName: 'YoutubeScript',
   schema: youtubeScriptResponseSchema,
   async buildPrompt(ctx) {
-    const scriptId = resolveScriptId(ctx);
-    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
-    if (!script) throw new Error('No script was supplied to revise.');
+    // Resolution throws with the full search when it fails, so the old
+    // "No script was supplied to revise." — which meant both "you gave me
+    // nothing" and "what you gave me does not exist" — is gone.
+    const { script } = await resolveScript(ctx);
     const instruction = String(ctx.task.input.instruction ?? 'Improve the script.');
     const sectionKey = ctx.task.input.section_heading;
 
@@ -379,10 +378,8 @@ const youtubeScriptRevise: CapabilityHandler<z.infer<typeof youtubeScriptRespons
     ].join('\n');
   },
   async persist(ctx, data) {
-    const scriptId = resolveScriptId(ctx);
-    if (!scriptId) throw new Error('No script id on the revision task.');
-    const script = await ctx.store.get('youtube_scripts', scriptId);
-    if (!script) throw new Error('The script being revised no longer exists.');
+    const { script } = await resolveScript(ctx);
+    const scriptId = script.id;
 
     const sections = data.sections as ScriptSection[];
     const wordCount = sections.reduce(
@@ -404,14 +401,13 @@ const youtubeScriptRevise: CapabilityHandler<z.infer<typeof youtubeScriptRespons
       updated_at: timestamp,
     });
 
-    await ctx.store.insert('youtube_script_versions', {
-      id: uuid(),
-      script_id: scriptId,
+    await recordScriptVersion(
+      ctx.store,
+      scriptId,
       version,
       sections,
-      note: String(ctx.task.input.instruction ?? 'Revision'),
-      created_at: timestamp,
-    });
+      String(ctx.task.input.instruction ?? 'Revision'),
+    );
 
     return {
       summary: `revised "${data.title}" to v${version} (${wordCount.toLocaleString('en-GB')} words)`,
@@ -430,11 +426,13 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
   schemaName: 'FactCheck',
   schema: factCheckResponseSchema,
   async buildPrompt(ctx) {
-    const scriptId = resolveScriptId(ctx);
-    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
-    const body = script
-      ? script.sections.map((s) => `## ${s.heading}\n${s.body}`).join('\n\n')
-      : '(script unavailable)';
+    // Deliberately unguarded. This used to substitute the literal string
+    // "(script unavailable)" and check that instead, which produced a real
+    // fact-check row, a real approval and a claim count of one or two — a
+    // mission that looked like it had passed a verification step it had never
+    // performed. A fact check with nothing to check must fail.
+    const { script } = await resolveScript(ctx);
+    const body = script.sections.map((s) => `## ${s.heading}\n${s.body}`).join('\n\n');
     return [
       baseContext(ctx),
       '',
@@ -452,7 +450,8 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
     ].join('\n');
   },
   async persist(ctx, data) {
-    const scriptId = resolveScriptId(ctx);
+    const { script: resolved } = await resolveScript(ctx);
+    const scriptId = resolved.id;
     const incorrect = data.findings.filter((f) => f.verdict === 'potentially_incorrect');
     const passed = incorrect.length === 0;
     const id = uuid();
@@ -469,12 +468,10 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
       created_at: now(),
     });
 
-    if (scriptId) {
-      await ctx.store.update('youtube_scripts', scriptId, {
-        status: passed ? 'awaiting_approval' : 'draft',
-        updated_at: now(),
-      });
-    }
+    await ctx.store.update('youtube_scripts', scriptId, {
+      status: passed ? 'awaiting_approval' : 'draft',
+      updated_at: now(),
+    });
 
     if (!passed) {
       return {
@@ -484,7 +481,7 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
       };
     }
 
-    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
+    const script = await ctx.store.get('youtube_scripts', scriptId);
     const needsReview = data.findings.filter((f) => f.verdict === 'needs_review').length;
     const unsourced = data.findings.filter((f) => f.verdict === 'unsourced').length;
     const warnings = [
@@ -529,8 +526,7 @@ const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailPlanResponseS
   schemaName: 'ThumbnailPlan',
   schema: thumbnailPlanResponseSchema,
   async buildPrompt(ctx) {
-    const scriptId = resolveScriptId(ctx);
-    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
+    const script = await resolveScriptSoft(ctx);
     return [
       baseContext(ctx),
       '',
@@ -550,7 +546,7 @@ const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailPlanResponseS
     ].join('\n');
   },
   async persist(ctx, data) {
-    const scriptId = resolveScriptId(ctx);
+    const scriptId = (await resolveScriptSoft(ctx))?.id ?? null;
     const video = await resolveVideo(ctx);
     const videoId = video?.id ?? null;
     const rows = data.concepts.map((concept) => ({
@@ -608,11 +604,13 @@ const youtubeProduction: CapabilityHandler<z.infer<typeof productionPlanResponse
   schemaName: 'ProductionPlan',
   schema: productionPlanResponseSchema,
   async buildPrompt(ctx) {
-    const scriptId = resolveScriptId(ctx);
-    const script = scriptId ? await ctx.store.get('youtube_scripts', scriptId) : null;
-    const body = script
-      ? script.sections.map((s) => `## ${s.heading}\n${s.body}`).join('\n\n')
-      : '(script unavailable)';
+    // Deliberately unguarded. This used to substitute the literal string
+    // "(script unavailable)" and check that instead, which produced a real
+    // fact-check row, a real approval and a claim count of one or two — a
+    // mission that looked like it had passed a verification step it had never
+    // performed. A fact check with nothing to check must fail.
+    const { script } = await resolveScript(ctx);
+    const body = script.sections.map((s) => `## ${s.heading}\n${s.body}`).join('\n\n');
     return [
       baseContext(ctx),
       '',
@@ -951,10 +949,37 @@ async function resolveIdeaId(ctx: RunContext): Promise<string | null> {
   return null;
 }
 
-function resolveScriptId(ctx: RunContext): string | null {
-  const direct = ctx.task.input.script_id;
-  if (typeof direct === 'string') return direct;
-  const fromStep = ctx.previousOutputs.script?.script_id;
-  if (typeof fromStep === 'string') return fromStep;
-  return null;
+/**
+ * The script this step is working on.
+ *
+ * Delegates to `resolveMissionScript`, which is the only thing in the codebase
+ * allowed to answer this question. It used to be answered here, badly: two
+ * places were checked, an empty string was returned as if it were an id, and a
+ * miss produced `null` that each caller then interpreted differently.
+ *
+ * Throws `ScriptUnavailable` — naming every place it looked — rather than
+ * returning null. A step with no script must stop, not carry on with a
+ * placeholder.
+ */
+async function resolveScript(ctx: RunContext): Promise<ScriptResolution> {
+  return resolveMissionScript(ctx.store, {
+    taskInput: ctx.task.input,
+    previousOutputs: ctx.previousOutputs,
+    missionId: ctx.task.mission_id,
+    businessId: ctx.business?.id ?? ctx.task.business_id,
+  });
+}
+
+/**
+ * The same resolution for steps that can legitimately run without a script.
+ *
+ * Thumbnail concepts are better with the script and possible without it, so a
+ * miss returns null rather than stopping the mission. The distinction is
+ * deliberate and small: steps that *use* a script may degrade, steps that
+ * *operate on* one may not.
+ */
+async function resolveScriptSoft(ctx: RunContext) {
+  return resolveScript(ctx)
+    .then((resolution) => resolution.script)
+    .catch(() => null);
 }
