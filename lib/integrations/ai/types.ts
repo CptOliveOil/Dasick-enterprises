@@ -25,6 +25,14 @@ export interface Usage {
 export interface TextResult {
   text: string;
   usage: Usage;
+  /**
+   * Why the model stopped. `max_tokens` means the reply was cut off, which is
+   * the difference between "the model got it wrong" and "the model ran out of
+   * room" — and those have different remedies.
+   */
+  stopReason?: string | null;
+  /** Content block types the reply contained, for diagnostics. */
+  blockTypes?: string[];
 }
 
 export interface StructuredResult<T> {
@@ -33,6 +41,18 @@ export interface StructuredResult<T> {
   usage: Usage;
   /** True when the first response failed validation and a repair pass ran. */
   repaired: boolean;
+}
+
+/** One line of safe diagnostics about a structured-output attempt. */
+export interface StructuredDiagnostics {
+  provider: string;
+  model: string;
+  attempt: 'first' | 'repair';
+  stopReason: string | null;
+  responseLength: number;
+  blockTypes: string[];
+  maxTokens: number;
+  failure?: string;
 }
 
 /**

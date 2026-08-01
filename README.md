@@ -373,6 +373,34 @@ missing. Optional ones go through `optionalId`, which returns a uuid or null and
 nothing else. Columns that end in `id` but are somebody else's identifier
 (`voice_id`, `external_id`) are listed as text and left alone.
 
+### Getting JSON back from a model
+
+`lib/integrations/ai/json.ts` is generous about packaging and strict about
+content. Fenced blocks, unclosed fences, leading and trailing prose, and a brace
+that appears in prose before the real object are all handled; a candidate only
+counts once it actually parses. Zod then validates with no leniency at all —
+loosening the schema to accept a half-written answer would put unfinished
+research into the database looking finished, which is the one outcome worse
+than failing.
+
+Failures are categorised rather than collapsed into one sentence: `empty`,
+`no_json`, `truncated`, `invalid_json`, `schema`. That distinction matters
+because only truncation is fixed by more room; the rest need a better prompt.
+
+Structured calls get an assistant `{` prefill, so the model cannot open with
+"Here is the research you asked for", and a floor of 8,192 output tokens —
+raised only upward, so an agent configured higher keeps its own figure. Where
+the provider reports `stop_reason: max_tokens`, the single repair attempt is
+given double the room *and* asked for a shorter answer, because more space alone
+does not stop a model producing the same over-long reply.
+
+The one-repair rule is unchanged: two calls at most, both billed and both
+counted.
+
+Diagnostics are logged for every structured attempt — provider, model, stop
+reason, response length, content block types, max tokens and failure category.
+Never the prompts, and never the key.
+
 ### Knowing which you are in
 
 **Settings → System status** labels every service `CONNECTED`, `SIMULATED` or
@@ -1374,6 +1402,11 @@ Covers the parts where being wrong is expensive:
   every table the pipeline touches finds no id that is neither a uuid nor null.
 - **Retrying** — that a failed step and the steps cancelled behind it are
   re-queued together, and that completed work is kept rather than re-run.
+- **Structured output** — prose, empty replies, fenced JSON, unclosed fences,
+  truncated JSON, a brace hiding in prose, malformed JSON and multi-block
+  replies, each classified as itself; that a truncated reply gets more room and
+  a shorter-answer instruction; that repair happens exactly once; that failure
+  after repair is clean; and that the diagnostics never carry a prompt or a key.
 - **Provisioning under real RLS** — run against a store that enforces the
   migrations' actual policies: that setup completes without a single refusal,
   writes nothing into the shared workflow library, still resolves a
