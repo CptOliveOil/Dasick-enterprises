@@ -81,8 +81,17 @@ export async function loadPreviousOutputs(
 ): Promise<Record<string, Record<string, unknown>>> {
   if (!missionId) return {};
   const tasks = await store.list('tasks', { where: { mission_id: missionId } });
+
+  // Oldest completion first, so when two steps do share a key the *later* work
+  // wins deterministically rather than by whatever order the driver returned
+  // rows in. Tasks that have not completed sort last on their creation time —
+  // they hold output only from a previous attempt.
+  const ordered = [...tasks].sort((a, b) =>
+    (a.completed_at ?? a.created_at).localeCompare(b.completed_at ?? b.created_at),
+  );
+
   const outputs: Record<string, Record<string, unknown>> = {};
-  for (const task of tasks) {
+  for (const task of ordered) {
     if (task.id === excludeTaskId) continue;
     if (!task.output) continue;
     const key = task.step_key ?? task.id;

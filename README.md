@@ -1367,6 +1367,37 @@ the database. It separates the three causes that look identical from the outside
 lists every script the mission owns, found by walking its tasks rather than by
 following references, so a script nothing points at still appears.
 
+### Why AI-planned missions failed and workflow-defined ones did not
+
+The script existed, the approval read it back, and the revision step still could
+not see it. The cause was two lines in the executor:
+
+```ts
+const stepKey = step.key ?? step.capability.split('.').pop();   // engine.ts
+const fromStep = ctx.previousOutputs.script?.script_id;          // capabilities.ts
+```
+
+A mission built from a **workflow definition** sets `key: 'script'` by hand, so
+the second line found it. A mission planned by the **Manager** takes its steps
+from a model, sets no key, and derives one from the capability — so the script
+step was keyed `write`, the fact check `factcheck`, and the revision `revise`.
+Nothing was keyed `script`, so the lookup missed in *every* AI-planned mission.
+Every test in this repo built missions from workflow definitions, which is
+exactly why nothing caught it.
+
+The derived key was also not unique: `youtube.voiceover.generate` and
+`youtube.thumbnail.generate` both reduced to `generate`, as did
+`youtube.research.ideas` and `pokemon.research.ideas`. Step keys index
+`loadPreviousOutputs` and `workflow_runs.step_tasks`, both plain objects, so a
+collision silently discarded one step's output — a mission planned with both
+narration and thumbnail generation lost one of them from its own graph.
+
+`assignStepKeys` now derives from the whole capability and de-duplicates within
+a mission, `loadPreviousOutputs` orders by completion time so later work wins
+deterministically, and the resolver picks the **newest** script when several
+steps name one — which is what makes the revision step receive the approved
+version rather than the draft it superseded.
+
 ### Two related fixes found on the way
 
 - **`getStore()` no longer substitutes demo data.** With Supabase configured and

@@ -156,21 +156,55 @@ export async function resolveMissionScript(
   );
   if (fromInput) return fromInput;
 
-  // 2. What an earlier step in this mission produced. Any step key, not just
-  //    `script` — a rework step writes its own key and is the newer draft.
+  // 2. What an earlier step in this mission produced.
+  //
+  //    Any step key, not just `script`. Built-in workflows name that step
+  //    `script`; a mission planned by the Manager derives its keys from the
+  //    capability, so the same step is keyed `youtube_script_write`. Reading one
+  //    fixed key is what made every AI-planned mission fail here.
+  //
+  //    And when several steps name a script — the writer produced v1, a
+  //    revision produced v2 — the *newest* wins, not whichever the driver
+  //    happened to return first. That is the difference between the reviser
+  //    receiving the approved version and receiving the draft it superseded.
+  const fromSteps = new Map<string, string>();
   for (const [key, output] of Object.entries(input.previousOutputs)) {
     const id = candidate(output?.script_id);
-    if (!id) continue;
-    const found = await tryId('previous_step', id, `step "${key}" produced no script id`);
-    if (found) return found;
+    if (id) fromSteps.set(id, key);
   }
-  if (!Object.values(input.previousOutputs).some((output) => candidate(output?.script_id))) {
+
+  if (fromSteps.size === 0) {
     attempts.push({
       source: 'previous_step',
       id: null,
       found: false,
       note: 'no completed step in this mission produced a script id',
     });
+  } else {
+    const rows = await Promise.all(
+      [...fromSteps.keys()].map((id) => store.get('youtube_scripts', id).catch(() => null)),
+    );
+    const live = rows.filter((row): row is NonNullable<typeof row> => row !== null);
+    if (live.length > 0) {
+      const newest = live.sort(
+        (a, b) => b.version - a.version || b.updated_at.localeCompare(a.updated_at),
+      )[0]!;
+      attempts.push({
+        source: 'previous_step',
+        id: newest.id,
+        found: true,
+        note:
+          live.length === 1
+            ? `step "${fromSteps.get(newest.id)}" produced it, version ${newest.version}`
+            : `${live.length} steps named a script; took the newest, version ${newest.version}, from step "${fromSteps.get(newest.id)}"`,
+      });
+      return { script: newest, via: 'previous_step', restoredFromArchive: false, attempts };
+    }
+    // Every id a step produced is dead. Try the archive for each before moving on.
+    for (const [id, key] of fromSteps) {
+      const found = await tryId('previous_step', id, `step "${key}" produced no script id`);
+      if (found) return found;
+    }
   }
 
   // 3. What the operator was actually shown. The approval payload is an audit

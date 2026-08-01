@@ -99,6 +99,51 @@ function stepsFromWorkflow(steps: WorkflowStep[]): PlannedStep[] {
   }));
 }
 
+/**
+ * A unique, stable key for every step in a mission.
+ *
+ * Two bugs lived in the one line this replaces:
+ *
+ *   const stepKey = step.key ?? step.capability.split('.').pop();
+ *
+ * **It was not unique.** `youtube.voiceover.generate` and
+ * `youtube.thumbnail.generate` both reduce to `generate`, as do
+ * `youtube.research.ideas` and `pokemon.research.ideas`. Step keys index two
+ * things — `loadPreviousOutputs`, which builds the map an agent reads as the
+ * work so far, and `workflow_runs.step_tasks` — and both are plain objects, so
+ * a collision silently discarded one step's output. A mission planned with both
+ * narration and thumbnail generation lost one of them from its own graph.
+ *
+ * **It was not predictable.** Built-in workflows set `key: 'script'` explicitly;
+ * a mission planned by the Manager gets its steps from a model, sets no key, and
+ * so the script step was keyed `write` and the fact check `factcheck`. Anything
+ * looking for `previousOutputs.script` — which is what every script consumer
+ * used to do — found nothing, in every AI-planned mission. That is why this only
+ * ever failed in production: every test builds missions from workflow
+ * definitions, where the key is set by hand.
+ *
+ * Derivation now uses the whole capability, so distinct capabilities cannot
+ * collide, and a counter guarantees uniqueness even when the same capability
+ * appears twice in one plan.
+ */
+export function assignStepKeys(steps: { capability: string; key?: string }[]): string[] {
+  const used = new Set<string>();
+  return steps.map((step, index) => {
+    const base =
+      step.key ?? step.capability.replace(/[^a-z0-9]+/gi, '_').toLowerCase() ?? `step_${index}`;
+    if (!used.has(base)) {
+      used.add(base);
+      return base;
+    }
+    // The same capability twice in one plan — legitimate, e.g. two revisions.
+    let suffix = 2;
+    while (used.has(`${base}_${suffix}`)) suffix += 1;
+    const unique = `${base}_${suffix}`;
+    used.add(unique);
+    return unique;
+  });
+}
+
 export async function createMission(
   store: DataStore,
   input: CreateMissionInput,
@@ -140,6 +185,7 @@ export async function createMission(
   await store.insert('missions', mission);
 
   const tasks: Task[] = [];
+  const stepKeys = assignStepKeys(planned);
   for (const [index, step] of planned.entries()) {
     const agentId = await resolveAgentForCapability(
       store,
@@ -147,7 +193,7 @@ export async function createMission(
       step.capability,
       input.businessId,
     );
-    const stepKey = step.key ?? step.capability.split('.').pop() ?? `step_${index}`;
+    const stepKey = stepKeys[index]!;
     const task: Task = {
       id: uuid(),
       owner_id: input.ownerId,
