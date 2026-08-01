@@ -1,3 +1,4 @@
+import { assertStorableRow, assertStorableRows } from './validate';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DataStore, QueryOptions, Row, TableName } from './tables';
 
@@ -48,6 +49,7 @@ export class SupabaseStore implements DataStore {
   }
 
   async insert<T extends TableName>(table: T, row: Row<T>): Promise<Row<T>> {
+    assertStorableRow(table, row);
     const { data, error } = await this.client
       .from(table)
       .insert(row as never)
@@ -61,6 +63,7 @@ export class SupabaseStore implements DataStore {
     table: T,
     rows: Row<T>[],
   ): Promise<Row<T>[]> {
+    assertStorableRows(table, rows);
     if (rows.length === 0) return [];
     const { data, error } = await this.client
       .from(table)
@@ -75,6 +78,7 @@ export class SupabaseStore implements DataStore {
     id: string,
     patch: Partial<Row<T>>,
   ): Promise<Row<T>> {
+    assertStorableRow(table, patch);
     const { data, error } = await this.client
       .from(table)
       .update(patch as never)

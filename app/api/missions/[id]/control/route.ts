@@ -1,16 +1,25 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
-import { recomputeMission } from '@/lib/workflows/engine';
+import { recomputeMission, releaseUnblockedTasks } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
 import { runAgent } from '@/lib/agents/engine';
 import { recordOperatorAction } from '@/lib/production/actions';
+import { dataErrorResponse } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const bodySchema = z.object({
-  action: z.enum(['pause', 'resume', 'cancel', 'retry_task', 'skip_task', 'reassign']),
+  action: z.enum([
+    'pause',
+    'resume',
+    'cancel',
+    'retry_task',
+    'retry_mission',
+    'skip_task',
+    'reassign',
+  ]),
   task_id: z.string().uuid().optional(),
   agent_id: z.string().uuid().optional(),
 });
@@ -34,6 +43,8 @@ export async function POST(
   const guard = await guardPermission('missions.create');
   if ('response' in guard) return guard.response;
   const { store, ownerId } = guard;
+
+  try {
   const mission = await store.get('missions', id);
   if (!mission || mission.owner_id !== ownerId) {
     return NextResponse.json({ error: 'Mission not found.' }, { status: 404 });
@@ -176,7 +187,73 @@ export async function POST(
       return NextResponse.json({ result, mission: await store.get('missions', id) });
     }
 
+    case 'retry_mission': {
+      // Picks up exactly where the mission stopped.
+      //
+      // Failed steps are re-queued, and so are the steps that were cancelled
+      // *because* of them — without that second part a retry re-runs the failed
+      // step and then stops again, because its dependents are still cancelled.
+      //
+      // Completed steps are left completely alone. That is what makes this safe
+      // to press: their output stands, no record is written twice, and no model
+      // is called again for work already paid for.
+      const failed = tasks.filter((task) => task.status === 'failed');
+      const collateral = tasks.filter(
+        (task) =>
+          task.status === 'cancelled' &&
+          task.error === 'An upstream step failed, so this step was cancelled.',
+      );
+      const resettable = [...failed, ...collateral];
+
+      if (resettable.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'Nothing to retry — this mission has no failed or cancelled steps.',
+            retried: 0,
+          },
+          { status: 409 },
+        );
+      }
+
+      for (const task of resettable) {
+        await store.update('tasks', task.id, {
+          status: 'queued',
+          error: null,
+          output: null,
+          progress: 0,
+          started_at: null,
+          completed_at: null,
+        });
+      }
+
+      await recordOperatorAction(store, {
+        ownerId,
+        businessId: mission.business_id,
+        missionId: id,
+        taskId: null,
+        message: `Retrying ${resettable.length} step${resettable.length === 1 ? '' : 's'} — completed work was kept`,
+      });
+
+      await releaseUnblockedTasks(store, id);
+      const run = await runMission(store, ownerId, id);
+      return NextResponse.json({
+        retried: resettable.length,
+        kept: tasks.length - resettable.length,
+        run,
+        mission: await store.get('missions', id),
+      });
+    }
+
     default:
       return NextResponse.json({ error: 'Unknown control action.' }, { status: 400 });
+    }
+  } catch (error) {
+    // Always JSON, and a data problem reported as one rather than as a fault.
+    const data = dataErrorResponse(error);
+    if (data) return data;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'That action could not be completed.' },
+      { status: 500 },
+    );
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
 import { handleCommand } from '@/lib/agents/manager';
 import { runMission } from '@/lib/workflows/runner';
+import { dataErrorResponse } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -41,6 +42,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ...result, run: runs[0] ?? null, runs });
   } catch (error) {
+    // A missing relationship is the caller's problem to fix, not a fault.
+    const data = dataErrorResponse(error);
+    if (data) return data;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'The command could not be executed.' },
       { status: 500 },

@@ -132,7 +132,7 @@ describe('the reviewer is generic', () => {
     await store.insert('youtube_scripts', {
       id: scriptId,
       business_id: uuid(),
-      idea_id: '',
+      idea_id: null,
       research_id: null,
       task_id: null,
       title: 'The lost region',
@@ -272,7 +272,7 @@ describe('field rendering', () => {
   it('hides bookkeeping but keeps everything the operator could judge', () => {
     const item = itemFromRecord(
       {
-        id: 'abc',
+        id: '90015098-3cd2-4fb0-8696-3f7d28e17f72',
         owner_id: 'someone',
         created_at: 'now',
         is_demo: false,

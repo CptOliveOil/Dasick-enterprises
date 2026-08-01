@@ -561,7 +561,7 @@ export interface ResearchFact {
 export interface YoutubeResearch {
   id: UUID;
   business_id: UUID;
-  idea_id: UUID;
+  idea_id: UUID | null;
   task_id: UUID | null;
   overview: string;
   facts: ResearchFact[];
@@ -602,7 +602,7 @@ export type ScriptStatus =
 export interface YoutubeScript {
   id: UUID;
   business_id: UUID;
-  idea_id: UUID;
+  idea_id: UUID | null;
   research_id: UUID | null;
   task_id: UUID | null;
   title: string;
@@ -644,7 +644,7 @@ export interface FactCheckFinding {
 export interface YoutubeFactCheck {
   id: UUID;
   business_id: UUID;
-  script_id: UUID;
+  script_id: UUID | null;
   task_id: UUID | null;
   findings: FactCheckFinding[];
   /** True when nothing is `potentially_incorrect`. Blocks progression if false. */
@@ -866,7 +866,7 @@ export interface EtsyProduct {
 export interface EtsyListing {
   id: UUID;
   business_id: UUID;
-  product_id: UUID;
+  product_id: UUID | null;
   task_id: UUID | null;
   title: string;
   description: string;

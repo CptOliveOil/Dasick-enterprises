@@ -1,6 +1,6 @@
 'use client';
 
-import { Play, X } from 'lucide-react';
+import { Play, RotateCw, X } from 'lucide-react';
 import { useState } from 'react';
 import { useWorkforce } from '@/lib/store/workforce';
 import { MISSION_STATUS_STYLES, TASK_STATUS_STYLES } from '@/lib/agents/status';
@@ -32,6 +32,44 @@ export function MissionInspector({
   const business = snapshot?.businesses.find((b) => b.id === mission.business_id) ?? null;
   const style = MISSION_STATUS_STYLES[mission.status];
   const advanceable = ['planning', 'running', 'waiting'].includes(mission.status);
+  // Anything that stopped part-way can be picked up: a failed step, or a step
+  // cancelled because one upstream of it failed.
+  const retryable = tasks.some(
+    (task) =>
+      task.status === 'failed' ||
+      (task.status === 'cancelled' &&
+        task.error === 'An upstream step failed, so this step was cancelled.'),
+  );
+
+  /**
+   * Picks up a mission that stopped part-way.
+   *
+   * Re-queues the failed steps and the ones cancelled behind them, and leaves
+   * completed steps exactly as they are — so nothing is regenerated, nothing is
+   * duplicated, and no model is called again for work already paid for.
+   */
+  const retry = async () => {
+    setRunning(true);
+    setBusy('Retrying failed steps');
+    setError(null);
+    try {
+      const response = await fetch(`/api/missions/${mission.id}/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retry_mission' }),
+      });
+      const raw = await response.text();
+      const data = raw ? JSON.parse(raw) : {};
+      if (!response.ok) throw new Error(data.error ?? 'The mission could not be retried.');
+      if (data.run?.haltedBecause) setError(data.run.haltedBecause);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The mission could not be retried.');
+    } finally {
+      setRunning(false);
+      setBusy(null);
+      await refresh();
+    }
+  };
 
   const advance = async () => {
     setRunning(true);
@@ -138,12 +176,31 @@ export function MissionInspector({
         )}
       </div>
 
-      {advanceable && (
-        <div className="border-t border-[var(--color-edge-soft)] p-3">
-          <Button variant="primary" className="w-full" loading={running} onClick={advance}>
-            <Play className="h-3.5 w-3.5" />
-            Advance mission
-          </Button>
+      {(advanceable || retryable) && (
+        <div className="space-y-2 border-t border-[var(--color-edge-soft)] p-3">
+          {retryable && (
+            <>
+              <Button variant="primary" className="w-full" loading={running} onClick={retry}>
+                <RotateCw className="h-3.5 w-3.5" />
+                Retry failed steps
+              </Button>
+              <p className="text-[11px] leading-relaxed text-[var(--color-ink-faint)]">
+                Runs the steps that failed and the ones cancelled behind them. Work that already
+                completed is kept — nothing is regenerated and nothing is charged twice.
+              </p>
+            </>
+          )}
+          {advanceable && (
+            <Button
+              variant={retryable ? 'secondary' : 'primary'}
+              className="w-full"
+              loading={running}
+              onClick={advance}
+            >
+              <Play className="h-3.5 w-3.5" />
+              Advance mission
+            </Button>
+          )}
         </div>
       )}
     </div>

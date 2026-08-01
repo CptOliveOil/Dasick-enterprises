@@ -779,7 +779,7 @@ describe('NEEDS_SOURCE resolution gate', () => {
     expect(audit.overrides).toHaveLength(0);
 
     const linked = await store.update('source_resolutions', record.id, {
-      mission_id: 'mission-1',
+      mission_id: 'bc3f8bcb-a854-47b1-8886-b59aa842c80c',
     });
     expect(linked.items[0]!.resolved_by).toBe(OWNER_ID);
     expect(linked.items[0]!.override_reason).toBeTruthy();

@@ -294,7 +294,7 @@ describe('production budgets', () => {
   it('counts spend already attributed to the video', async () => {
     const { store, business } = await makeProductionWorkspace();
     await store.insert('financial_transactions', {
-      id: 'txn-1',
+      id: '748fe40d-b311-47da-840f-c7987dede79a',
       owner_id: OWNER_ID,
       business_id: business.id,
       kind: 'ai_cost',
@@ -304,11 +304,11 @@ describe('production budgets', () => {
       currency: 'GBP',
       occurred_at: new Date().toISOString(),
       reference_type: 'video',
-      reference_id: 'video-1',
+      reference_id: '55af154b-56df-4b7c-8a05-68695f4dddfd',
       is_demo: false,
       created_at: new Date().toISOString(),
     });
-    expect(await videoSpend(store, OWNER_ID, 'video-1')).toBe(3.5);
+    expect(await videoSpend(store, OWNER_ID, '55af154b-56df-4b7c-8a05-68695f4dddfd')).toBe(3.5);
   });
 });
 
@@ -317,7 +317,7 @@ describe('spend approval', () => {
     const { store, business, agents } = await makeProductionWorkspace();
     const timestamp = new Date().toISOString();
     await store.insert('tasks', {
-      id: 'task-spend',
+      id: 'e9145b87-e3ab-4e03-8abd-2d433a9e2192',
       owner_id: OWNER_ID,
       mission_id: null,
       business_id: business.id,
@@ -338,11 +338,11 @@ describe('spend approval', () => {
       due_at: null,
     });
     await store.insert('approvals', {
-      id: 'approval-spend',
+      id: '56f33eeb-4618-40f6-8e43-8a0a31772fa4',
       owner_id: OWNER_ID,
       business_id: business.id,
       mission_id: null,
-      task_id: 'task-spend',
+      task_id: 'e9145b87-e3ab-4e03-8abd-2d433a9e2192',
       agent_id: agents.assetAgent.id,
       kind: 'spend',
       title: 'Approve £8.00 for scene assets',
@@ -355,9 +355,9 @@ describe('spend approval', () => {
       resolved_at: null,
     });
 
-    await resolveApproval(store, OWNER_ID, 'approval-spend', 'approve');
+    await resolveApproval(store, OWNER_ID, '56f33eeb-4618-40f6-8e43-8a0a31772fa4', 'approve');
 
-    const task = await store.get('tasks', 'task-spend');
+    const task = await store.get('tasks', 'e9145b87-e3ab-4e03-8abd-2d433a9e2192');
     expect(task!.status).toBe('queued');
     expect(task!.input.spend_authorised).toBe(true);
   });
@@ -366,7 +366,7 @@ describe('spend approval', () => {
     const { store, business, agents } = await makeProductionWorkspace();
     const timestamp = new Date().toISOString();
     await store.insert('tasks', {
-      id: 'task-spend-2',
+      id: '26054391-9d2d-48e0-8498-1a133dfc26c9',
       owner_id: OWNER_ID,
       mission_id: null,
       business_id: business.id,
@@ -387,11 +387,11 @@ describe('spend approval', () => {
       due_at: null,
     });
     await store.insert('approvals', {
-      id: 'approval-spend-2',
+      id: '0794cc79-ce16-4435-8b31-67d03556cdcd',
       owner_id: OWNER_ID,
       business_id: business.id,
       mission_id: null,
-      task_id: 'task-spend-2',
+      task_id: '26054391-9d2d-48e0-8498-1a133dfc26c9',
       agent_id: agents.assetAgent.id,
       kind: 'spend',
       title: 'Approve £8.00',
@@ -404,8 +404,8 @@ describe('spend approval', () => {
       resolved_at: null,
     });
 
-    await resolveApproval(store, OWNER_ID, 'approval-spend-2', 'reject', 'Too expensive.');
-    const task = await store.get('tasks', 'task-spend-2');
+    await resolveApproval(store, OWNER_ID, '0794cc79-ce16-4435-8b31-67d03556cdcd', 'reject', 'Too expensive.');
+    const task = await store.get('tasks', '26054391-9d2d-48e0-8498-1a133dfc26c9');
     expect(task!.status).toBe('cancelled');
   });
 });
@@ -440,7 +440,7 @@ describe('agent execution engine', () => {
     const { store, business, agents } = await makeProductionWorkspace();
     const timestamp = new Date().toISOString();
     await store.insert('tasks', {
-      id: 'task-provider',
+      id: 'a81779af-e22a-4d6f-8728-2f3470e0e297',
       owner_id: OWNER_ID,
       mission_id: null,
       business_id: business.id,
@@ -461,7 +461,7 @@ describe('agent execution engine', () => {
       due_at: null,
     });
 
-    const result = await runAgent(store, OWNER_ID, 'task-provider');
+    const result = await runAgent(store, OWNER_ID, 'a81779af-e22a-4d6f-8728-2f3470e0e297');
 
     // No narration plan exists, so it blocks — the point is that it went
     // through the engine and produced activity, not that it succeeded.

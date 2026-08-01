@@ -144,8 +144,8 @@ describe('successRate', () => {
 
 describe('costForReference', () => {
   it('sums only the spend attributed to one thing', () => {
-    const linked = { ...txn('ai_cost', 3), reference_type: 'task', reference_id: 'task-1' };
+    const linked = { ...txn('ai_cost', 3), reference_type: 'task', reference_id: 'c146b6ad-3827-4b93-8d94-d82f20703136' };
     const unlinked = txn('ai_cost', 9);
-    expect(costForReference([linked, unlinked], 'task', 'task-1')).toBe(3);
+    expect(costForReference([linked, unlinked], 'task', 'c146b6ad-3827-4b93-8d94-d82f20703136')).toBe(3);
   });
 });

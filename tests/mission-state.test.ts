@@ -6,9 +6,9 @@ function task(status: TaskStatus, id = Math.random().toString()): Task {
   return {
     id,
     owner_id: 'owner',
-    mission_id: 'mission',
+    mission_id: '6c654deb-fa4c-4f1d-8499-5df5feb61889',
     business_id: null,
-    agent_id: 'agent',
+    agent_id: 'b33aed8f-3134-4967-83dc-39f9a7c95783',
     step_key: null,
     title: 'task',
     description: '',

@@ -6,6 +6,7 @@ import type {
   TableName,
 } from './tables';
 import { TABLE_NAMES } from './tables';
+import { assertStorableRow, assertStorableRows } from './validate';
 
 type AnyRow = { id: string; [key: string]: unknown };
 
@@ -82,6 +83,7 @@ export class MemoryStore implements DataStore {
   }
 
   async insert<T extends TableName>(table: T, row: Row<T>): Promise<Row<T>> {
+    assertStorableRow(table, row);
     this.table(table).set(
       (row as unknown as AnyRow).id,
       structuredClone(row) as unknown as AnyRow,
@@ -94,6 +96,7 @@ export class MemoryStore implements DataStore {
     table: T,
     rows: Row<T>[],
   ): Promise<Row<T>[]> {
+    assertStorableRows(table, rows);
     for (const row of rows) {
       this.table(table).set(
         (row as unknown as AnyRow).id,
@@ -109,6 +112,7 @@ export class MemoryStore implements DataStore {
     id: string,
     patch: Partial<Row<T>>,
   ): Promise<Row<T>> {
+    assertStorableRow(table, patch);
     const existing = this.table(table).get(id);
     if (!existing) throw new Error(`${table}: no row with id ${id}`);
     const next = { ...existing, ...structuredClone(patch) } as unknown as AnyRow;

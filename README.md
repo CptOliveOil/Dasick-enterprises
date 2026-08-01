@@ -359,6 +359,20 @@ and labelled as a snapshot. There is no path that produces an approval you canno
 read, which is the whole point — a summary like "found 5 opportunities" with no
 way to see the five is not a decision, it is a rubber stamp.
 
+### Ids are a uuid or null, never an empty string
+
+`lib/db/validate.ts` checks every id-shaped field on every write, from both
+stores, so the rule is the same in tests as in production. A relationship that
+is genuinely absent is `null`; an empty string is a missing value pretending to
+be a present one, and it is rejected with the column named rather than reaching
+Postgres and coming back as `invalid input syntax for type uuid: ""`.
+
+Required relationships — `business_id` is `not null` on every content table —
+raise `MissingRelationship`, which the API answers as a 422 naming what is
+missing. Optional ones go through `optionalId`, which returns a uuid or null and
+nothing else. Columns that end in `id` but are somebody else's identifier
+(`voice_id`, `external_id`) are listed as text and left alone.
+
 ### Knowing which you are in
 
 **Settings → System status** labels every service `CONNECTED`, `SIMULATED` or
@@ -1354,6 +1368,12 @@ Covers the parts where being wrong is expensive:
   idempotent.
 - **Persistence** — that a mission, its tasks, their output, the recorded cost
   and the activity trail are all rows rather than variables.
+- **Id integrity** — that the full-video workflow completes its research step
+  with no idea ahead of it, that an idea is still linked when one genuinely
+  exists, that a blank id is refused with the column named, and that a sweep of
+  every table the pipeline touches finds no id that is neither a uuid nor null.
+- **Retrying** — that a failed step and the steps cancelled behind it are
+  re-queued together, and that completed work is kept rather than re-run.
 - **Provisioning under real RLS** — run against a store that enforces the
   migrations' actual policies: that setup completes without a single refusal,
   writes nothing into the shared workflow library, still resolves a

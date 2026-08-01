@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guardPermission } from '@/lib/auth/session';
 import { runMission } from '@/lib/workflows/runner';
+import { dataErrorResponse } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -23,6 +24,8 @@ export async function POST(
     const run = await runMission(store, ownerId, id);
     return NextResponse.json(run);
   } catch (error) {
+    const data = dataErrorResponse(error);
+    if (data) return data;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'The mission could not be advanced.' },
       { status: 500 },

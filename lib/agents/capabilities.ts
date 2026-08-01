@@ -32,6 +32,23 @@ import {
   renderPreviousOutputs,
   type RunContext,
 } from './context';
+import { optionalId, requireId } from '@/lib/db/validate';
+
+/**
+ * The business this run belongs to.
+ *
+ * `business_id` is `not null` on every content table, so there is no valid
+ * fallback. It used to default to `''`, which turned "this task is not attached
+ * to a business" into a uuid syntax error thrown by Postgres three layers from
+ * the cause. Failing here instead names the problem and what to do about it.
+ */
+function businessIdFor(ctx: RunContext, what: string): string {
+  return requireId(
+    ctx.business?.id ?? ctx.task.business_id,
+    `Cannot save ${what} because this task is not attached to a business.`,
+    'Start the mission from a business, or set the business on the task before running it.',
+  );
+}
 
 export interface ApprovalRequest {
   kind: ApprovalKind;
@@ -152,8 +169,8 @@ const youtubeIdeas: CapabilityHandler<z.infer<typeof youtubeIdeasResponseSchema>
   async persist(ctx, data) {
     const rows = data.ideas.map((idea) => ({
       id: uuid(),
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      channel_id: (ctx.task.input.channel_id as string | undefined) ?? null,
+      business_id: businessIdFor(ctx, 'these video ideas'),
+      channel_id: optionalId(ctx.task.input.channel_id),
       mission_id: ctx.task.mission_id,
       task_id: ctx.task.id,
       title: idea.title,
@@ -215,8 +232,10 @@ const youtubeResearch: CapabilityHandler<z.infer<typeof youtubeResearchResponseS
     const ideaId = await resolveIdeaId(ctx);
     const row = {
       id: uuid(),
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      idea_id: ideaId ?? '',
+      business_id: businessIdFor(ctx, 'this research package'),
+      // Nullable in the schema: the full-video workflow starts at research with
+      // no idea step ahead of it, and "no idea" is a legitimate state.
+      idea_id: optionalId(ideaId),
       task_id: ctx.task.id,
       overview: data.overview,
       facts: data.facts,
@@ -281,9 +300,9 @@ const youtubeScript: CapabilityHandler<z.infer<typeof youtubeScriptResponseSchem
 
     await ctx.store.insert('youtube_scripts', {
       id: scriptId,
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      idea_id: ideaId ?? '',
-      research_id: researchId,
+      business_id: businessIdFor(ctx, 'this script'),
+      idea_id: optionalId(ideaId),
+      research_id: optionalId(researchId),
       task_id: ctx.task.id,
       title: data.title,
       sections,
@@ -435,8 +454,8 @@ const youtubeFactCheck: CapabilityHandler<z.infer<typeof factCheckResponseSchema
 
     await ctx.store.insert('youtube_fact_checks', {
       id,
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      script_id: scriptId ?? '',
+      business_id: businessIdFor(ctx, 'this fact check'),
+      script_id: optionalId(scriptId),
       task_id: ctx.task.id,
       findings: data.findings,
       passed,
@@ -531,7 +550,7 @@ const youtubeThumbnails: CapabilityHandler<z.infer<typeof thumbnailPlanResponseS
     const videoId = video?.id ?? null;
     const rows = data.concepts.map((concept) => ({
       id: uuid(),
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
+      business_id: businessIdFor(ctx, 'this record'),
       video_id: videoId,
       script_id: scriptId,
       concept_title: concept.concept_title,
@@ -606,7 +625,7 @@ const youtubeProduction: CapabilityHandler<z.infer<typeof productionPlanResponse
     ].join('\n');
   },
   async persist(ctx, data) {
-    const videoId = (ctx.task.input.video_id as string | undefined) ?? null;
+    const videoId = optionalId(ctx.task.input.video_id);
     if (!videoId) {
       return {
         summary: `drafted a ${data.scenes.length}-scene production plan`,
@@ -695,12 +714,12 @@ const youtubeAnalysis: CapabilityHandler<z.infer<typeof channelAnalysisResponseS
     ].join('\n');
   },
   async persist(ctx, data) {
-    const businessId = ctx.business?.id ?? ctx.task.business_id ?? '';
+    const businessId = businessIdFor(ctx, 'this channel intelligence');
     const id = uuid();
     await ctx.store.insert('youtube_channel_intelligence', {
       id,
       business_id: businessId,
-      channel_id: (ctx.task.input.channel_id as string | undefined) ?? null,
+      channel_id: optionalId(ctx.task.input.channel_id),
       best_topics: data.best_topics,
       best_title_structures: data.best_title_structures,
       thumbnail_patterns: data.thumbnail_patterns,
@@ -746,8 +765,8 @@ const etsyOpportunities: CapabilityHandler<
   async persist(ctx, data) {
     const rows = data.opportunities.map((opp) => ({
       id: uuid(),
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      store_id: (ctx.task.input.store_id as string | undefined) ?? null,
+      business_id: businessIdFor(ctx, 'this record'),
+      store_id: optionalId(ctx.task.input.store_id),
       mission_id: ctx.task.mission_id,
       task_id: ctx.task.id,
       product: opp.product,
@@ -781,7 +800,7 @@ const etsyListing: CapabilityHandler<z.infer<typeof etsyListingResponseSchema>> 
   schemaName: 'EtsyListing',
   schema: etsyListingResponseSchema,
   async buildPrompt(ctx) {
-    const productId = (ctx.task.input.product_id as string | undefined) ?? null;
+    const productId = optionalId(ctx.task.input.product_id);
     const product = productId ? await ctx.store.get('etsy_products', productId) : null;
     return [
       baseContext(ctx),
@@ -799,12 +818,12 @@ const etsyListing: CapabilityHandler<z.infer<typeof etsyListingResponseSchema>> 
     ].join('\n');
   },
   async persist(ctx, data) {
-    const productId = (ctx.task.input.product_id as string | undefined) ?? null;
+    const productId = optionalId(ctx.task.input.product_id);
     const id = uuid();
     await ctx.store.insert('etsy_listings', {
       id,
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
-      product_id: productId ?? '',
+      business_id: businessIdFor(ctx, 'this listing'),
+      product_id: optionalId(productId),
       task_id: ctx.task.id,
       title: data.title,
       description: data.description,
@@ -863,7 +882,7 @@ const seoKeywords: CapabilityHandler<z.infer<typeof keywordResponseSchema>> = {
   async persist(ctx, data) {
     const rows = data.keywords.map((k) => ({
       id: uuid(),
-      business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
+      business_id: businessIdFor(ctx, 'this record'),
       keyword: k.keyword,
       search_volume: k.search_volume,
       competition: k.competition,
