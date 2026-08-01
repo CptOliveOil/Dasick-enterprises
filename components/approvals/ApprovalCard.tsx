@@ -9,6 +9,7 @@ import { Badge, Button, DemoNotice, inputClass } from '@/components/ui';
 import { formatMoneyPrecise } from '@/lib/utils';
 import { SourceResolution } from './SourceResolution';
 import { ApprovalReview } from './ApprovalReview';
+import { DossierView } from './dossier/DossierView';
 import { approvalOutcomes, explainApproval } from '@/lib/operations/needs-you';
 import type { Approval } from '@/types/domain';
 
@@ -56,6 +57,10 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
   };
 
   const resolved = approval.status !== 'pending';
+  // The full editorial review replaces this card's own detail and buttons; it
+  // renders both, and two sets of Approve buttons on one screen is how a
+  // decision gets made by accident.
+  const full = !compact && approval.kind !== 'source';
 
   return (
     <article
@@ -99,14 +104,31 @@ export function ApprovalCard({ approval, compact }: { approval: Approval; compac
 
       <ApprovalDetail approval={approval} compact={compact} />
 
-      {/* The work itself. Shown for every kind except the source gate, which
-          has its own per-claim resolution UI immediately above. Nobody should
-          be asked to approve something they cannot read. */}
-      {approval.kind !== 'source' && (
-        <ApprovalReview approvalId={approval.id} autoLoad={!compact} />
+      {/* The work itself.
+          
+          At full width the editorial review is rendered inline — the whole
+          script, its claims, its sources, its scores and its history — and it
+          carries its own decision bar. Nobody should have to open another page
+          to read what they are approving.
+          
+          The source gate keeps its own per-claim resolution UI above, and the
+          compact panel keeps the small summary plus a link, because a sidebar
+          is not a place to read a documentary. */}
+      {full && <DossierView approvalId={approval.id} onResolved={refresh} />}
+
+      {compact && approval.kind !== 'source' && (
+        <>
+          <ApprovalReview approvalId={approval.id} autoLoad={false} />
+          <Link
+            href={`/approvals/${approval.id}`}
+            className="mt-1.5 inline-block text-[12px] text-amber-400 underline-offset-4 hover:underline"
+          >
+            Open the full review →
+          </Link>
+        </>
       )}
 
-      {resolved ? (
+      {full ? null : resolved ? (
         <p className="mt-2.5 text-[12px] text-[var(--color-ink-faint)]">
           {approval.status === 'approved'
             ? 'Approved'

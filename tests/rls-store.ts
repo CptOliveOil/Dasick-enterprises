@@ -21,7 +21,8 @@ import type { DataStore, QueryOptions, Row, TableName } from '@/lib/db/tables';
  * - `supabase/migrations/0003_accounts_agents_islamic.sql` — source policies,
  *   visual rules, the Islamic tables, and the workflow-library rules that make
  *   `owner_id is null` rows immutable.
- * - `0004`–`0006` — source resolutions, Pokémon opportunities, AI budgets.
+ * - `0004`–`0007` — source resolutions, Pokémon opportunities, AI budgets and
+ *   mission outcomes.
  *
  * When a migration changes a policy, change it here too. A test double that has
  * drifted from the schema is worse than none, because it is trusted.
@@ -49,6 +50,7 @@ const OWNER_SCOPED: ReadonlySet<string> = new Set([
   'source_resolutions',
   'pokemon_opportunities',
   'ai_budgets',
+  'mission_outcomes',
 ]);
 
 /** Tables reached through their business: the business must be the caller's. */

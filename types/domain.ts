@@ -998,3 +998,69 @@ export interface Profile {
   created_at: Timestamp;
   updated_at: Timestamp;
 }
+
+/* ------------------------------------------------------------------ */
+/* Business intelligence memory                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a finished piece of work turned out to be worth.
+ *
+ * One row per completed mission, written automatically when the mission
+ * finishes and enriched afterwards as real performance data arrives. This is
+ * the workspace's long memory: agent memory holds *rules* an operator agreed
+ * to, and this holds *outcomes* nobody had to agree to because they happened.
+ *
+ * Every performance field is nullable and every one starts null. A mission that
+ * has completed is not a video that has been watched, and a workspace that
+ * pretends otherwise teaches its own agents to be confident about numbers it
+ * invented. They fill in only when a real analytics row exists.
+ */
+export interface MissionOutcome {
+  id: UUID;
+  owner_id: UUID;
+  business_id: UUID | null;
+  mission_id: UUID | null;
+  /** Deliberately generic: a video title, a listing name, a topic. */
+  topic: string;
+  category: string;
+  /** `youtube`, `etsy`, `islamic` — so a brief can be phrased for the business. */
+  business_kind: string;
+  /** What was produced, when the mission produced a durable thing. */
+  entity_kind: string | null;
+  entity_id: UUID | null;
+  published_at: Timestamp | null;
+
+  /* Audience — YouTube and anything else with viewers. */
+  views: number | null;
+  impressions: number | null;
+  /** 0–1. */
+  ctr: number | null;
+  thumbnail_ctr: number | null;
+  watch_time_minutes: number | null;
+  /** 0–1: how far through the average viewer got. */
+  average_view_percentage: number | null;
+  comments: number | null;
+
+  /* Commerce — Etsy and anything else that sells. */
+  units_sold: number | null;
+  /** 0–1. */
+  conversion_rate: number | null;
+  revenue: number | null;
+  /** Revenue per thousand views. */
+  rpm: number | null;
+
+  /* Cost of production, which is known the moment the mission ends. */
+  ai_cost: number;
+  minutes_taken: number | null;
+  /** 0–100, from how much work and how much intervention the mission needed. */
+  difficulty: number | null;
+  /** 0–100 once real performance is known. Null until then, never guessed. */
+  success_score: number | null;
+
+  /** Anything a number cannot carry, in the operator's or an agent's words. */
+  notes: string[];
+  is_demo: boolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}

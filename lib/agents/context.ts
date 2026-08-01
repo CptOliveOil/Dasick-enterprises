@@ -15,6 +15,16 @@ export interface RunContext {
   mission: Mission | null;
   business: Business | null;
   memory: AgentMemory[];
+  /**
+   * Business Intelligence Memory, already rendered for a prompt: what this
+   * business has produced before and how it performed.
+   *
+   * It lives on the context rather than being fetched inside each capability so
+   * that every agent gets it automatically — including agents that do not exist
+   * yet. An empty string when the business has no completed work, so a new
+   * workspace does not carry a paragraph explaining that it knows nothing.
+   */
+  businessMemory: string;
   /** Outputs of completed tasks in the same mission, keyed by workflow step. */
   previousOutputs: Record<string, Record<string, unknown>>;
 }

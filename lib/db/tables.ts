@@ -17,6 +17,7 @@ import type {
   FinancialTransaction,
   IntegrationConnection,
   Mission,
+  MissionOutcome,
   Profile,
   Task,
   TaskDependency,
@@ -108,6 +109,7 @@ export interface Tables {
   source_policies: SourcePolicy;
   pokemon_opportunities: PokemonOpportunity;
   ai_budgets: AiBudget;
+  mission_outcomes: MissionOutcome;
   visual_rules: VisualRules;
 }
 
@@ -159,6 +161,7 @@ export const TABLE_NAMES: TableName[] = [
   'production_settings',
   'pokemon_opportunities',
   'ai_budgets',
+  'mission_outcomes',
 ];
 
 /** Every row in every table has these. */

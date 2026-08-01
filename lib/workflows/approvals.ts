@@ -3,6 +3,8 @@ import type { DataStore } from '@/lib/db/tables';
 import { logActivity, notify } from '@/lib/agents/activity';
 import type { Approval, ApprovalStatus } from '@/types/domain';
 import { recomputeMission, releaseUnblockedTasks } from './engine';
+import { scheduleRework } from '@/lib/approvals/rework';
+import { recordMissionOutcome } from '@/lib/memory/business';
 
 export type ApprovalDecision = 'approve' | 'reject' | 'request_changes';
 
@@ -37,9 +39,10 @@ const DECISION_STATUS: Record<ApprovalDecision, ApprovalStatus> = {
  * Resolves an approval and applies the consequences to the task, the mission
  * and whatever domain object was being approved.
  *
- * "Request changes" deliberately re-queues the *same* task with the operator's
- * feedback attached, so existing dependencies stay intact and the agent gets
- * another attempt rather than the mission dying.
+ * "Request changes" never kills the mission. Where a rework capability exists
+ * for the kind, the notes go to the agent that can actually redo the work and
+ * the step that raised the approval waits behind it; otherwise the same step is
+ * re-queued with the feedback attached, which is what it has always done.
  */
 export async function resolveApproval(
   store: DataStore,
@@ -71,7 +74,15 @@ export async function resolveApproval(
 
   const agent = approval.agent_id ? await store.get('agents', approval.agent_id) : null;
 
-  if (approval.task_id) {
+  // Changes requested: send the work back to whoever can actually redo it.
+  // When a rework is scheduled it also puts the approval's own step behind it,
+  // so the block below must not then re-queue that step.
+  const rework =
+    decision === 'request_changes'
+      ? await scheduleRework(store, ownerId, approval, feedback ?? '')
+      : null;
+
+  if (approval.task_id && !rework) {
     const task = await store.get('tasks', approval.task_id);
     if (task) {
       // A spend gate is not "work to sign off" — it is permission to proceed.
@@ -141,6 +152,9 @@ export async function resolveApproval(
     await releaseUnblockedTasks(store, approval.mission_id);
     const mission = await recomputeMission(store, approval.mission_id);
     if (mission?.status === 'completed') {
+      // Business Intelligence Memory: the mission has finished, so what it was
+      // and what it cost become part of what this business knows.
+      await recordMissionOutcome(store, mission).catch(() => null);
       await notify(store, {
         ownerId,
         kind: 'mission_completed',

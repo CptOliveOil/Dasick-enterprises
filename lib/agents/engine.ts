@@ -17,6 +17,7 @@ import {
   loadRelevantMemory,
   type RunContext,
 } from './context';
+import { businessMemoryBrief } from '@/lib/memory/business';
 
 export interface RunAgentResult {
   taskId: string;
@@ -110,6 +111,10 @@ export async function runAgent(
       mission: task.mission_id ? await store.get('missions', task.mission_id) : null,
       business: task.business_id ? await store.get('businesses', task.business_id) : null,
       memory: await loadRelevantMemory(store, agent, task.business_id ?? agent.business_id),
+      businessMemory: await businessMemoryBrief(
+        store,
+        task.business_id ?? agent.business_id,
+      ).catch(() => ''),
       previousOutputs: await loadPreviousOutputs(store, task.mission_id, task.id),
     };
 

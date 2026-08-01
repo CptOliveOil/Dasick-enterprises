@@ -96,9 +96,24 @@ describe('script approval gate', () => {
       'Make the first 30 seconds more engaging.',
     );
 
+    // The notes go to the Scriptwriter, which is the agent that can act on
+    // them. Re-running the fact checker against an unchanged draft — which is
+    // what this used to do — produced the same warnings and threw the feedback
+    // away.
+    const tasks = await store.list('tasks', { where: { mission_id: mission.id } });
+    const rework = tasks.find((t) => t.input.capability === 'youtube.script.revise')!;
+    expect(rework).toBeTruthy();
+    expect(rework.status).toBe('queued');
+    expect(rework.input.instruction).toBe('Make the first 30 seconds more engaging.');
+
+    // The step that raised the approval runs again, but behind the rewrite.
     const task = await store.get('tasks', approval.task_id!);
-    expect(task!.status).toBe('queued');
+    expect(task!.status).toBe('waiting');
     expect(task!.input.operator_feedback).toBe('Make the first 30 seconds more engaging.');
+    const dependencies = await store.list('task_dependencies', {
+      where: { task_id: approval.task_id! },
+    });
+    expect(dependencies.map((d) => d.depends_on_task_id)).toContain(rework.id);
 
     // Earlier script versions survive a revision request.
     const versions = await store.list('youtube_script_versions');

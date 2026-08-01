@@ -178,6 +178,7 @@ describe('source verification blocking', () => {
         mission,
         business: islamicBusiness,
         memory: [],
+        businessMemory: '',
         previousOutputs: { research: { research_id: research!.id } },
       },
       {
@@ -229,6 +230,7 @@ describe('source verification blocking', () => {
         mission,
         business: islamicBusiness,
         memory: [],
+        businessMemory: '',
         previousOutputs: {},
       },
       {
@@ -274,6 +276,7 @@ describe('source verification blocking', () => {
         mission,
         business: islamicBusiness,
         memory: [],
+        businessMemory: '',
         previousOutputs: {},
       },
       {
@@ -627,6 +630,7 @@ describe('visual restrictions', () => {
         mission: null,
         business: islamicBusiness,
         memory: [],
+        businessMemory: '',
         previousOutputs: {},
       },
       {

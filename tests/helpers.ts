@@ -72,7 +72,9 @@ export async function makeWorkspace() {
       name: 'Writer',
       slug: 'writer',
       business_id: business.id,
-      capabilities: ['youtube.script.write'],
+      // Both, matching the seeded Scriptwriter: writing and revising are the
+      // same agent's job, and a rework has nowhere to go otherwise.
+      capabilities: ['youtube.script.write', 'youtube.script.revise'],
     }),
     checker: makeAgent({
       name: 'Checker',
@@ -207,7 +209,9 @@ export async function makeIslamicWorkspace() {
       name: 'Islamic Scriptwriter',
       slug: 'islamic-scriptwriter',
       business_id: islamicBusiness.id,
-      capabilities: ['youtube.script.write'],
+      // Both, matching the seeded Scriptwriter: writing and revising are the
+      // same agent's job, and a rework has nowhere to go otherwise.
+      capabilities: ['youtube.script.write', 'youtube.script.revise'],
     }),
     factChecker: makeAgent({
       name: 'Islamic Fact Checker',

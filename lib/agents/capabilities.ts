@@ -114,6 +114,11 @@ function baseContext(ctx: RunContext): string {
     '',
     renderMemory(ctx.memory),
     '',
+    // Business Intelligence Memory. Rendered here, once, so that every
+    // capability — and every agent added later — gets what this business has
+    // learned without anyone wiring it in per handler.
+    ctx.businessMemory,
+    '',
     ctx.mission ? `Mission: ${ctx.mission.title}\nObjective: ${ctx.mission.objective}` : '',
     '',
     renderPreviousOutputs(ctx.previousOutputs),

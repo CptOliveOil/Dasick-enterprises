@@ -403,6 +403,7 @@ describe('capability execution in Demo Mode', () => {
         mission: mission.mission,
         business,
         memory: [],
+        businessMemory: '',
         previousOutputs: {},
       },
       data,

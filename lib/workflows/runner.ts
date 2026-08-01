@@ -2,6 +2,7 @@ import 'server-only';
 import type { DataStore } from '@/lib/db/tables';
 import { logActivity } from '@/lib/agents/activity';
 import { runAgent, type RunAgentResult } from '@/lib/agents/engine';
+import { recordMissionOutcome } from '@/lib/memory/business';
 import {
   getRunnableTasks,
   recomputeMission,
@@ -99,6 +100,14 @@ export async function runMission(
 
   await releaseUnblockedTasks(store, missionId);
   const mission = await recomputeMission(store, missionId);
+
+  // Business Intelligence Memory. Recording lives at both places a mission can
+  // reach `completed` — here and in approval resolution — because a mission
+  // that ends on an approval never passes through this function. Recording is
+  // idempotent by mission, so being called from both is harmless.
+  if (mission?.status === 'completed') {
+    await recordMissionOutcome(store, mission).catch(() => null);
+  }
 
   return {
     missionId,

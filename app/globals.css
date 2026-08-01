@@ -232,3 +232,54 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/*
+ * Printing a review.
+ *
+ * "Download PDF" is the browser's own print-to-PDF, so the page has to become a
+ * document rather than a screenshot of an interface: white paper, black text,
+ * no navigation, no toolbars, and no page break falling through the middle of a
+ * scene card. Everything hidden here is chrome — nothing that forms part of the
+ * work being approved is dropped.
+ */
+@media print {
+  :root {
+    --color-void: #ffffff;
+    --color-deep: #ffffff;
+    --color-panel: #ffffff;
+    --color-panel-raised: #ffffff;
+    --color-edge: #d4d8e0;
+    --color-edge-soft: #e6e9ef;
+    --color-ink: #101319;
+    --color-ink-muted: #454b58;
+    --color-ink-faint: #6b7280;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #101319 !important;
+  }
+
+  nav,
+  aside,
+  header nav {
+    display: none !important;
+  }
+
+  section,
+  figure,
+  li {
+    break-inside: avoid;
+  }
+
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+  }
+
+  mark {
+    background: transparent !important;
+    color: inherit !important;
+  }
+}

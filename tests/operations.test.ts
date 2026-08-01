@@ -417,6 +417,7 @@ describe('daily briefing', () => {
       mission: null,
       business,
       memory: [],
+      businessMemory: '',
       previousOutputs: {},
     });
 
@@ -615,6 +616,7 @@ describe('NEEDS_SOURCE resolution gate', () => {
         mission,
         business: islamicBusiness,
         memory: [],
+        businessMemory: '',
         previousOutputs: {},
       },
       {

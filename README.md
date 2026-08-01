@@ -33,6 +33,8 @@ accounting.
 - [Islamic content](#islamic-content)
 - [Pokémon research](#pokémon-research)
 - [Galaxy architecture](#galaxy-architecture)
+- [Approvals: the editorial review](#approvals-the-editorial-review)
+- [Business Intelligence Memory](#business-intelligence-memory)
 - [Extending it](#extending-it)
 - [Testing](#testing)
 - [Deployment](#deployment)
@@ -86,12 +88,13 @@ URL and the anon key from Settings → API.
 
 In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
 `0003_accounts_agents_islamic.sql`, `0004_operations.sql`, `0005_pokemon.sql`,
-`0006_real_mode.sql`. Paste them into the
+`0006_real_mode.sql`, `0007_business_memory.sql`. Paste them into the
 SQL editor, or use `supabase db push`. Migration `0003` creates the owner role
 column, the role-immutability trigger and the Islamic tables; `0004` adds
 mission priority and deadlines, memory provenance and the source resolution
 table; `0005` adds the Pokémon opportunities table; `0006` adds the account AI
-spending ceiling.
+spending ceiling; `0007` adds `mission_outcomes`, the per-business record of
+what finished work cost and how it performed.
 
 ### 3. Create your owner account — safely
 
@@ -184,7 +187,8 @@ displayed again.
 2. Copy the project URL and anon key into `.env.local`.
 3. Run the migrations, in order — `0001_initial_schema.sql`,
    `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`,
-   `0004_operations.sql`, `0005_pokemon.sql`, `0006_real_mode.sql`. Either paste them into the SQL editor, or use the
+   `0004_operations.sql`, `0005_pokemon.sql`, `0006_real_mode.sql`,
+   `0007_business_memory.sql`. Either paste them into the SQL editor, or use the
    Supabase CLI:
 
    ```bash
@@ -1190,6 +1194,170 @@ ring, label and text.
 **Accessibility.** The galaxy is never the only way to do anything. Every agent,
 task, mission and approval is reachable through the sidebar as a list or table.
 Without WebGL, the universe page renders a keyboard-navigable agent list.
+
+---
+
+## Approvals: the editorial review
+
+One rule shapes this whole area: **an operator is never asked to approve work
+they cannot fully inspect.** A script approval that shows "1 claim checked, 1
+warning" above a button that starts production and opens a budget is a receipt,
+not a review.
+
+So every approval is assembled into a *dossier* — a summary you can scan, panels
+you can read, and actions whose consequences are spelled out. Those are the three
+parts every approval registers, and they are declared as **data** rather than as
+components, which is what lets a business added in a year's time inherit the
+entire review screen without anyone writing one.
+
+### The shape
+
+`lib/approvals/dossier/types.ts` defines a closed set of *presentation* shapes:
+
+| Panel | What it renders | Used by |
+| --- | --- | --- |
+| `document` | Prose, set as a document: measure, line height, scene headings | Scripts, research reports |
+| `claims` | Assertions split into verified and warnings, each with its reason | Fact checks, source checks |
+| `sources` | Citations grouped by kind of evidence, with reliability | Anything researched |
+| `scores` | Measured quality, each with the sentence saying what it measured | Scripts |
+| `scenes` | The storyboard the narration implies | Scripts |
+| `versions` | Draft history with a word-level diff and approval history | Anything revisable |
+| `media` | Images, video and audio played in place | Thumbnails, renders, narration |
+| `ledger` | Money, with ceilings and headroom | Spend gates |
+| `items` | Stored rows as cards — the generic renderer | Everything else |
+| `fields` | The payload as readable fields — the floor | Anything unrecognised |
+
+A builder answers one question — "given this approval, what should the operator
+read?" — and returns panels. It renders nothing and cannot break another kind's
+screen.
+
+### Registering a reviewer
+
+```ts
+// lib/approvals/dossier/index.ts
+registerDossier({
+  id: 'my_business',
+  kinds: ['listing'],
+  async build({ store, approval }) {
+    const row = await store.get('my_table', approval.payload.thing_id);
+    if (!row) return null;              // fall through to the generic reviewer
+    return {
+      summary: { title: row.name, metrics: [{ label: 'Price', value: `£${row.price}` }] },
+      panels: [{ kind: 'document', id: 'copy', title: 'The listing', blocks: [...] }],
+      approveConsequence: 'Approving marks it ready. Publishing is separate.',
+    };
+  },
+});
+```
+
+Registering nothing is also a complete answer. `genericDossier` resolves
+whatever the payload points at — rows in any table, arrays embedded in the
+payload, or the payload itself — and shows all of it. A specific builder makes a
+review *better*; it never makes one possible.
+
+### Honesty rules
+
+- **Quality scores are measured, never guessed.** Where there is nothing to
+  measure — originality with no history behind it, SEO with no metadata written
+  yet — the score is `null` and the band is `unknown`. The overall figure
+  excludes them rather than assuming a value.
+- **Nothing predicts audience behaviour.** "Retention prediction" scores the
+  structural devices that hold attention and says so in its basis line. Real
+  retention comes from analytics.
+- **Sources are described, not judged.** A community wiki is "unverified", not
+  "wrong". Reliability describes what a publisher *is*.
+- **Storyboards are suggestions.** No footage is sourced, generated or reserved.
+  A scene with nothing concrete to cut to is reported as a note about the
+  writing.
+- **Nothing costs money.** Building a review reads stored rows only. No provider
+  is called, and reading an approval twice shows the same thing twice.
+
+### Request changes
+
+`lib/approvals/presets.ts` replaces the blank textbox with the notes an editor
+actually gives, grouped and composable. Several presets plus a sentence of your
+own become one numbered brief, shown in full before it is sent.
+
+The brief then goes to the agent that can act on it. `lib/approvals/rework.ts`
+maps an approval kind to the capability that redoes the work — `script` →
+`youtube.script.revise` — inserts that task, and makes the step that raised the
+approval wait behind it. The sequence an editor expects follows: notes →
+rewrite → re-check → review again, with every draft kept as a version.
+
+Where no rework capability exists, or no agent in the workspace provides it, the
+previous behaviour stands exactly as it was: the same step is re-queued with the
+feedback attached. Rework can make a request better; it can never strand a
+mission.
+
+### Version history
+
+`youtube_script_versions` already stored every draft; the review now reads them
+back. Consecutive pairs are diffed section by section (matched on heading, so a
+moved section is not one enormous deletion), and within a section word by word
+via an LCS in `lib/approvals/diff.ts`. Whitespace rides on the token it follows,
+so the "after" column reads as the script rather than as fragments.
+
+### Export
+
+- **Markdown** — the document as written.
+- **Word** — a real `.docx`. `lib/approvals/export.ts` writes valid OOXML into a
+  stored zip with correct CRC32s, so it opens without a warning dialog.
+- **PDF** — the browser's own print-to-PDF, with a print stylesheet in
+  `app/globals.css` that turns the page into a document.
+
+---
+
+## Business Intelligence Memory
+
+Two kinds of memory now exist and they are deliberately different:
+
+- `agent_memory` holds **rules**. An agent proposed one, an operator approved it,
+  and it shapes every later run. It is opinion that someone signed off.
+- `mission_outcomes` holds **outcomes**. Nobody had to agree to them; they
+  happened. What was made, what it cost, how long it took, and once the numbers
+  exist, how it actually did.
+
+### How it fills
+
+`recordMissionOutcome` runs the moment a mission reaches `completed` — from the
+runner and from approval resolution, because a mission that ends on an approval
+never passes through the runner. It is idempotent by mission, and migration 0007
+enforces that with a unique index, so a re-run cannot count the same video twice
+in every average the agents later read.
+
+Performance is **pulled, not pushed**. Analytics arrive from a provider on their
+own schedule, long after the mission ended, so `businessOutcomes` reads them at
+brief time and writes what it finds back to the row. A sync hook that had to
+remember to update outcomes would eventually forget.
+
+Every performance column starts null and stays null until a real analytics row
+fills it. A mission completing is not an audience watching, and a workspace that
+seeds plausible numbers teaches its own agents to be confident about fiction.
+
+### How agents use it
+
+`businessMemoryBrief` renders the business's own history as a short block, and
+the engine puts it on `RunContext.businessMemory`. `baseContext` renders it once,
+so **every** capability — including capabilities that do not exist yet — gets it
+without anyone wiring it in per handler.
+
+It is scoped per business, so a YouTube channel's history never reaches an Etsy
+agent's prompt and two channels under one account stay separate. Each business
+accumulates its own knowledge because each one is a different audience. And it is
+bounded, so a workspace with a thousand finished missions costs the same per
+prompt as one with ten.
+
+The brief is explicit about what is not known:
+
+```
+What this business has learned from its own completed work:
+- 3 completed pieces of work so far.
+- Already covered — do not repeat these unless asked: The banned episode; …
+- No audience or sales figures are known yet for any of it. Do not assume any
+  of the above performed well or badly.
+- Cost so far: £0.60 across 3, averaging £0.20 each and 62 minutes each.
+Use this as evidence, not as instruction.
+```
 
 ---
 
