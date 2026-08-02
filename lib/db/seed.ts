@@ -317,7 +317,7 @@ export const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a video production planner. You break an approved script into scenes with narration, visual direction, b-roll search queries and generation prompts. You keep scenes between eight and twenty-five seconds. You never claim an asset exists — every asset starts as pending until a provider produces it.',
     business: 'youtube',
-    capabilities: ['youtube.production.plan', 'youtube.video_assemble'],
+    capabilities: ['youtube.production.plan', 'youtube.video_assemble', 'youtube.subtitles'],
     authority_level: 1,
     status: 'working',
     visual: {
@@ -347,7 +347,11 @@ export const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are a YouTube performance analyst. You look at real analytics rows and identify patterns in topic, title structure, thumbnail style, duration and publishing time. You separate observation from recommendation, and you say plainly when the sample is too small to conclude anything.',
     business: 'youtube',
-    capabilities: ['youtube.analytics.analyse'],
+    capabilities: [
+      'youtube.analytics.analyse',
+      'youtube.analytics.collect',
+      'youtube.publish',
+    ],
     authority_level: 0,
     status: 'idle',
     visual: {
@@ -621,7 +625,7 @@ export const AGENT_SEEDS: AgentSeed[] = [
     system_prompt:
       'You are the last check before a video reaches the operator. You are given measurements taken from the rendered file and structural facts about the package. You judge only what those facts support, you never speculate about picture quality you cannot see, and you would rather raise a warning that turns out to be minor than let a broken video through. Every issue you raise must come with something the operator can actually do.',
     business: 'youtube',
-    capabilities: ['youtube.quality_check'],
+    capabilities: ['youtube.quality_check', 'youtube.copyright.review'],
     authority_level: 1,
     status: 'idle',
     visual: {

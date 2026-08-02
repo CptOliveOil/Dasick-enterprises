@@ -36,6 +36,8 @@ import type {
 } from '@/types/domain';
 import type {
   MediaAsset,
+  YoutubeCaptions,
+  YoutubeCopyrightReview,
   ProductionBudget,
   ProductionSettings,
   ProviderJob,
@@ -110,6 +112,8 @@ export interface Tables {
   pokemon_opportunities: PokemonOpportunity;
   ai_budgets: AiBudget;
   mission_outcomes: MissionOutcome;
+  youtube_captions: YoutubeCaptions;
+  youtube_copyright_reviews: YoutubeCopyrightReview;
   visual_rules: VisualRules;
 }
 
@@ -162,6 +166,8 @@ export const TABLE_NAMES: TableName[] = [
   'pokemon_opportunities',
   'ai_budgets',
   'mission_outcomes',
+  'youtube_captions',
+  'youtube_copyright_reviews',
 ];
 
 /** Every row in every table has these. */

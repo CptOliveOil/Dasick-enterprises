@@ -134,13 +134,26 @@ export async function makeProductionWorkspace() {
       slug: 'video-producer',
       business_id: business.id,
       authority_level: 2,
-      capabilities: ['youtube.video_assemble', 'youtube.production.plan'],
+      capabilities: [
+        'youtube.video_assemble',
+        'youtube.production.plan',
+        'youtube.subtitles',
+      ],
     }),
     qc: makeAgent({
       name: 'Quality Control',
       slug: 'quality-control',
       business_id: business.id,
-      capabilities: ['youtube.quality_check'],
+      capabilities: ['youtube.quality_check', 'youtube.copyright.review'],
+    }),
+    publisher: makeAgent({
+      name: 'YouTube Analyst',
+      slug: 'youtube-analyst',
+      business_id: business.id,
+      // Publishing is authority level 3 in the seed; the test workforce mirrors
+      // it so the authority gate is exercised rather than bypassed.
+      authority_level: 3,
+      capabilities: ['youtube.publish', 'youtube.analytics.collect'],
     }),
   };
 

@@ -418,3 +418,58 @@ export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, string> = {
   final_approval: 'Final approval',
   publish: 'Publish',
 };
+
+/* ------------------------------------------------------------------ */
+/* Captions and copyright                                              */
+/* ------------------------------------------------------------------ */
+
+export interface CaptionCue {
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+export interface YoutubeCaptions {
+  id: UUID;
+  business_id: UUID;
+  video_id: UUID | null;
+  script_id: UUID | null;
+  task_id: UUID | null;
+  language: string;
+  cues: CaptionCue[];
+  /** WebVTT, uploaded as the platform's own caption track. */
+  vtt: string;
+  /**
+   * True when the timings came from hearing the narration rather than from
+   * estimating against the script. Estimated cues drift, so quality control
+   * reports them as provisional rather than claiming a sync it never measured.
+   */
+  aligned: boolean;
+  provider: string;
+  is_demo: boolean;
+  created_at: Timestamp;
+}
+
+export type CopyrightVerdict = 'clear' | 'attribution_required' | 'review_needed' | 'blocked';
+
+export interface CopyrightFinding {
+  asset: string;
+  issue: string;
+  detail: string;
+  /** `blocking` stops publishing; `attribution` only needs a credit line. */
+  severity: 'advisory' | 'attribution' | 'blocking';
+  recommendation: string;
+}
+
+export interface YoutubeCopyrightReview {
+  id: UUID;
+  business_id: UUID;
+  video_id: UUID | null;
+  task_id: UUID | null;
+  verdict: CopyrightVerdict;
+  summary: string;
+  findings: CopyrightFinding[];
+  attribution_required: string[];
+  is_demo: boolean;
+  created_at: Timestamp;
+}

@@ -6,7 +6,16 @@
  * the workflow then blocks with the reason, which is the whole point.
  */
 
-export type ProviderKind = 'voice' | 'image' | 'video' | 'stock' | 'renderer';
+export type ProviderKind =
+  | 'voice'
+  | 'image'
+  | 'video'
+  | 'stock'
+  | 'renderer'
+  | 'music'
+  | 'subtitles'
+  | 'publisher'
+  | 'analytics';
 
 export class ProviderNotConnectedError extends Error {
   readonly notConnected = true;
@@ -186,4 +195,132 @@ export interface VideoRenderer extends BaseProvider {
   renderTimeline(request: RenderRequest): Promise<RenderResult>;
   getRenderStatus(jobId: string): Promise<{ status: string; progress: number }>;
   cancelRender(jobId: string): Promise<void>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Music                                                               */
+/* ------------------------------------------------------------------ */
+
+export interface MusicRequest {
+  /** What the bed should feel like, in the editor's language. */
+  mood: string;
+  durationSeconds: number;
+  /** Beats per minute, when the edit wants a specific pace. */
+  tempo?: number | null;
+  /** Kept out of the mix under narration; providers vary in how they use it. */
+  intensity?: 'bed' | 'standard' | 'feature';
+}
+
+export interface MusicProvider extends BaseProvider {
+  generateMusic(request: MusicRequest): Promise<ProducedMedia>;
+  estimateCost(seconds: number): number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Subtitles                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface SubtitleCue {
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+export interface SubtitleRequest {
+  /** The narration audio, when the provider transcribes rather than aligns. */
+  audioPath: string | null;
+  /** The words that were narrated, for forced alignment. */
+  transcript: string;
+  language: string;
+  /** Maximum characters per displayed line. */
+  lineLength: number;
+}
+
+export interface SubtitleResult {
+  cues: SubtitleCue[];
+  /** WebVTT, for the platform's own caption track. */
+  vtt: string;
+  /** True when timings came from real alignment rather than estimation. */
+  aligned: boolean;
+  cost: number;
+  simulated: boolean;
+}
+
+export interface SubtitleProvider extends BaseProvider {
+  generateSubtitles(request: SubtitleRequest): Promise<SubtitleResult>;
+  estimateCost(seconds: number): number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Publishing                                                          */
+/* ------------------------------------------------------------------ */
+
+export type PublishVisibility = 'private' | 'unlisted' | 'scheduled' | 'public';
+
+export interface PublishRequest {
+  videoPath: string;
+  thumbnailPath: string | null;
+  captionsVtt: string | null;
+  title: string;
+  description: string;
+  tags: string[];
+  /** Chapter markers, rendered into the description by the adapter. */
+  chapters: { startSeconds: number; label: string }[];
+  visibility: PublishVisibility;
+  /** Required when visibility is `scheduled`. */
+  publishAt: string | null;
+  /** Platform-required self-declaration. Never inferred. */
+  madeForKids: boolean;
+  /** Declares AI-generated or synthetic content where the platform asks. */
+  syntheticMedia: boolean;
+}
+
+export interface PublishResult {
+  /** The platform's own id. Only ever set by a genuine upload. */
+  externalId: string;
+  url: string;
+  visibility: PublishVisibility;
+  cost: number;
+  simulated: boolean;
+}
+
+/**
+ * Uploading is the one irreversible act in the system, so a publisher is held
+ * to a stricter contract than the rest: it must refuse rather than approximate,
+ * and `simulated` must be true unless something genuinely left the building.
+ */
+export interface Publisher extends BaseProvider {
+  publish(request: PublishRequest): Promise<PublishResult>;
+  /** Removes a video the workspace published. Not all platforms allow it. */
+  unpublish(externalId: string): Promise<void>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Analytics                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface AnalyticsWindow {
+  externalId: string;
+  /** ISO dates, inclusive. */
+  from: string;
+  to: string;
+}
+
+export interface AnalyticsDay {
+  date: string;
+  views: number;
+  impressions: number;
+  /** 0–1. */
+  clickThroughRate: number;
+  watchTimeMinutes: number;
+  averageViewDurationSeconds: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  subscribersGained: number;
+  revenue: number;
+}
+
+export interface AnalyticsProvider extends BaseProvider {
+  collectAnalytics(window: AnalyticsWindow): Promise<AnalyticsDay[]>;
 }

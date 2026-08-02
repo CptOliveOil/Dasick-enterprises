@@ -139,7 +139,7 @@ describe('production pipeline in Demo Mode', () => {
     await resolveApproval(store, OWNER_ID, scriptApproval.id, 'approve');
 
     // Enough steps for the whole downstream pipeline.
-    await runMission(store, OWNER_ID, mission.id, { maxSteps: 25 });
+    await runMission(store, OWNER_ID, mission.id, { maxSteps: 40 });
 
     const videos = await store.list('youtube_videos', { where: { business_id: business.id } });
     const video = videos[0]!;
@@ -200,7 +200,7 @@ describe('production pipeline in Demo Mode', () => {
       (a) => a.kind === 'script',
     )!;
     await resolveApproval(store, OWNER_ID, scriptApproval.id, 'approve');
-    await runMission(store, OWNER_ID, mission.id, { maxSteps: 25 });
+    await runMission(store, OWNER_ID, mission.id, { maxSteps: 40 });
 
     const finalApproval = (await store.list('approvals', { where: { status: 'pending' } })).find(
       (a) => a.kind === 'video',

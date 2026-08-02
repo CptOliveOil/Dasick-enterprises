@@ -158,12 +158,42 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
         requires_approval: false,
       },
       {
+        key: 'subtitles',
+        title: 'Generate subtitles',
+        capability: 'youtube.subtitles',
+        depends_on: ['assembly'],
+        requires_approval: false,
+      },
+      {
+        key: 'copyright',
+        title: 'Copyright review',
+        capability: 'youtube.copyright.review',
+        // After the assets exist, because it reviews their licences. It blocks
+        // the pipeline itself when it finds something that cannot ship.
+        depends_on: ['assets'],
+        requires_approval: false,
+      },
+      {
         key: 'quality_check',
         title: 'Quality check',
         capability: 'youtube.quality_check',
-        depends_on: ['assembly', 'thumbnail_images'],
+        depends_on: ['assembly', 'thumbnail_images', 'subtitles', 'copyright'],
         // Quality control raises the final approval itself, carrying the QC
         // verdict, so this step declares no separate gate.
+        requires_approval: false,
+      },
+      {
+        key: 'publish',
+        title: 'Publish to YouTube',
+        capability: 'youtube.publish',
+        depends_on: ['quality_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'analytics',
+        title: 'Collect analytics',
+        capability: 'youtube.analytics.collect',
+        depends_on: ['publish'],
         requires_approval: false,
       },
     ],

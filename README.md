@@ -33,6 +33,7 @@ accounting.
 - [Islamic content](#islamic-content)
 - [Pokémon research](#pokémon-research)
 - [Galaxy architecture](#galaxy-architecture)
+- [The AI YouTube Studio](#the-ai-youtube-studio)
 - [Approvals: the editorial review](#approvals-the-editorial-review)
 - [Resolving the canonical script](#resolving-the-canonical-script)
 - [Business Intelligence Memory](#business-intelligence-memory)
@@ -89,7 +90,7 @@ URL and the anon key from Settings → API.
 
 In order: `0001_initial_schema.sql`, `0002_production_pipeline.sql`,
 `0003_accounts_agents_islamic.sql`, `0004_operations.sql`, `0005_pokemon.sql`,
-`0006_real_mode.sql`, `0007_business_memory.sql`. Paste them into the
+`0006_real_mode.sql`, `0007_business_memory.sql`, `0008_studio.sql`. Paste them into the
 SQL editor, or use `supabase db push`. Migration `0003` creates the owner role
 column, the role-immutability trigger and the Islamic tables; `0004` adds
 mission priority and deadlines, memory provenance and the source resolution
@@ -189,7 +190,7 @@ displayed again.
 3. Run the migrations, in order — `0001_initial_schema.sql`,
    `0002_production_pipeline.sql`, `0003_accounts_agents_islamic.sql`,
    `0004_operations.sql`, `0005_pokemon.sql`, `0006_real_mode.sql`,
-   `0007_business_memory.sql`. Either paste them into the SQL editor, or use the
+   `0007_business_memory.sql`, `0008_studio.sql`. Either paste them into the SQL editor, or use the
    Supabase CLI:
 
    ```bash
@@ -1195,6 +1196,99 @@ ring, label and text.
 **Accessibility.** The galaxy is never the only way to do anything. Every agent,
 task, mission and approval is reachable through the sidebar as a list or table.
 Without WebGL, the universe page renders a keyboard-navigable agent list.
+
+---
+
+## The AI YouTube Studio
+
+One workflow. One mission engine. One set of capabilities. **The only thing that
+changes between a demo and a real studio is which implementation answers each
+provider call.**
+
+That is not a description of an intention — `tests/modes.test.ts` builds the
+task graph in demo mode and in production mode and asserts the two are `toEqual`
+identical: same steps, same order, same dependencies, same approval gates, same
+capabilities. It also asserts that no workflow definition anywhere names a
+provider, and that no workflow key looks like a fork (`*_demo`, `*_v2`).
+
+### Modes
+
+| Mode | Database | Model | Media providers | Billable |
+| --- | --- | --- | --- | --- |
+| `demo` | in-memory | mock | simulated | no |
+| `development` | Supabase | Anthropic | simulated unless configured | model calls only |
+| `production` | Supabase | Anthropic | real, or the step blocks | yes |
+
+Inferred by default — no database means a demo, a database means production —
+and overridable with `COMMAND_CENTRE_MODE` for the one case inference cannot
+see: a developer who wants real Claude and a real database without paying for
+narration and rendering on every run. One override is refused: a workspace with
+a database cannot call itself a demo, because that would put simulated output
+into real records.
+
+### The pipeline
+
+```
+research → script → fact check → ⟨SCRIPT APPROVAL⟩ → voiceover plan → voiceover
+        → visual plan → assets ┐
+        thumbnail concepts → thumbnail images ┤
+        metadata ──────────────┴→ assembly → subtitles
+                                  assets  → copyright review
+                        → quality check → ⟨FINAL APPROVAL⟩ → publish → analytics
+```
+
+Sixteen steps, two operator gates, one definition. The copyright review blocks
+the pipeline itself when it finds something that cannot ship, and publishing
+refuses unless the video is approved, the copyright review cleared and a real
+publisher is connected.
+
+### The provider layer
+
+Nine interfaces in `lib/integrations/providers/types.ts`: `VoiceProvider`,
+`MusicProvider`, `ImageProvider`, `VideoProvider`, `StockMediaProvider`,
+`SubtitleProvider`, `VideoRenderer`, `Publisher`, `AnalyticsProvider`. Each has
+a simulated implementation and an unconnected one, resolved through
+`registry.ts` by mode.
+
+An unconnected provider **throws**. It never returns a placeholder, so a step
+that needs one blocks with the exact environment variables required to fix it.
+Two refusals are deliberately sharper than the rest:
+
+- The **simulated publisher** returns an id shaped `simulated-…` and a URL that
+  goes nowhere, and `published_external_id` is only ever written by a genuine
+  upload. A demo can never leave the workspace believing a video is live.
+- The **simulated analytics provider** returns nothing at all. Every other
+  simulated provider fabricates structure; this one would have to fabricate
+  *results*, and those flow into Business Intelligence Memory and from there
+  into every future prompt.
+
+### Adding a provider
+
+```ts
+// lib/integrations/providers/elevenlabs.ts
+export class ElevenLabsVoiceProvider implements VoiceProvider { … }
+
+// registry.ts — one line
+export function getVoiceProvider(): VoiceProvider {
+  if (envPresent(VOICE_ENV)) return new ElevenLabsVoiceProvider();
+  if (simulationAllowed()) return new SimulatedVoiceProvider();
+  return new UnconnectedVoiceProvider(VOICE_ENV);
+}
+```
+
+No workflow changes. No capability changes. No engine changes.
+
+### Upload package
+
+`GET /api/youtube/videos/<id>/package` assembles the MP4, thumbnail, captions,
+title, description, tags, chapters, pinned comment, transcript, sources, licence
+report and AI cost report from stored records — with `?format=markdown` for a
+single downloadable document. It also returns `blockers`: the list of things
+that must be true before Publish means anything.
+
+Nothing is invented. A section with no underlying record says so rather than
+being omitted, because a missing licence report and an empty one mean very
+different things to whoever signs off the upload.
 
 ---
 

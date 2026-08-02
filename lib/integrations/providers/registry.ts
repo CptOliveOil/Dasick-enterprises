@@ -1,5 +1,6 @@
 import 'server-only';
-import { config, isDemoMode } from '@/lib/config';
+import { config } from '@/lib/config';
+import { currentMode, simulationAllowed as modeAllowsSimulation, type Mode } from '@/lib/modes';
 import { FfmpegRenderer } from './ffmpeg-renderer';
 import {
   SimulatedImageProvider,
@@ -8,15 +9,29 @@ import {
   SimulatedVoiceProvider,
 } from './simulated';
 import {
+  SimulatedAnalyticsProvider,
+  SimulatedMusicProvider,
+  SimulatedPublisher,
+  SimulatedSubtitleProvider,
+} from './studio-simulated';
+import {
+  UnconnectedAnalyticsProvider,
   UnconnectedImageProvider,
+  UnconnectedMusicProvider,
+  UnconnectedPublisher,
   UnconnectedStockProvider,
+  UnconnectedSubtitleProvider,
   UnconnectedVideoProvider,
   UnconnectedVoiceProvider,
 } from './unconnected';
 import type {
+  AnalyticsProvider,
   ImageProvider,
+  MusicProvider,
   ProviderDescriptor,
+  Publisher,
   StockMediaProvider,
+  SubtitleProvider,
   VideoProvider,
   VideoRenderer,
   VoiceProvider,
@@ -26,17 +41,20 @@ export const VOICE_ENV = ['VOICE_PROVIDER', 'VOICE_PROVIDER_API_KEY'];
 export const IMAGE_ENV = ['IMAGE_PROVIDER', 'IMAGE_PROVIDER_API_KEY'];
 export const VIDEO_ENV = ['VIDEO_PROVIDER', 'VIDEO_PROVIDER_API_KEY'];
 export const STOCK_ENV = ['STOCK_PROVIDER', 'STOCK_PROVIDER_API_KEY'];
+export const MUSIC_ENV = ['MUSIC_PROVIDER', 'MUSIC_PROVIDER_API_KEY'];
+export const SUBTITLE_ENV = ['SUBTITLE_PROVIDER', 'SUBTITLE_PROVIDER_API_KEY'];
+export const PUBLISHER_ENV = ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN'];
+export const ANALYTICS_ENV = ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN'];
 
 /**
- * Whether Demo Mode may stand in for a missing media provider.
+ * Whether a simulated provider may stand in for a missing real one.
  *
- * Two conditions, both required: the application must be in Demo Mode (no
- * database configured), and the operator must not have opted out. Outside Demo
- * Mode a missing provider always blocks — it is never quietly simulated.
+ * The mode decides. Demo and Development may simulate; Production never may,
+ * so a missing provider there blocks the step with its reason rather than
+ * quietly producing a placeholder that looks like work.
  */
-export function simulationAllowed(): boolean {
-  if (!isDemoMode()) return false;
-  return process.env.DISABLE_SIMULATED_MEDIA !== 'true';
+export function simulationAllowed(mode: Mode = currentMode()): boolean {
+  return modeAllowsSimulation(mode);
 }
 
 function envPresent(names: string[]): boolean {
@@ -94,12 +112,50 @@ export function getVideoRenderer(): VideoRenderer {
   return renderer;
 }
 
+/* ------------------------------------------------------------------ */
+/* Studio providers                                                    */
+/* ------------------------------------------------------------------ */
+
+export function getMusicProvider(): MusicProvider {
+  if (envPresent(MUSIC_ENV)) unregistered('Music', process.env.MUSIC_PROVIDER ?? 'unknown');
+  if (simulationAllowed()) return new SimulatedMusicProvider();
+  return new UnconnectedMusicProvider(MUSIC_ENV);
+}
+
+export function getSubtitleProvider(): SubtitleProvider {
+  if (envPresent(SUBTITLE_ENV)) unregistered('Subtitle', process.env.SUBTITLE_PROVIDER ?? 'unknown');
+  if (simulationAllowed()) return new SimulatedSubtitleProvider();
+  return new UnconnectedSubtitleProvider(SUBTITLE_ENV);
+}
+
+export function getPublisher(): Publisher {
+  if (envPresent(PUBLISHER_ENV)) unregistered('Publisher', 'youtube');
+  if (simulationAllowed()) return new SimulatedPublisher();
+  return new UnconnectedPublisher(PUBLISHER_ENV);
+}
+
+export function getAnalyticsProvider(): AnalyticsProvider {
+  if (envPresent(ANALYTICS_ENV)) unregistered('Analytics', 'youtube');
+  if (simulationAllowed()) return new SimulatedAnalyticsProvider();
+  return new UnconnectedAnalyticsProvider(ANALYTICS_ENV);
+}
+
+/**
+ * Every provider the studio can call, in one list.
+ *
+ * The order is the order of the pipeline, so the settings page reads as the
+ * production line it describes rather than as an alphabetical inventory.
+ */
 export function describeMediaProviders(): ProviderDescriptor[] {
   return [
     getVoiceProvider().descriptor,
+    getMusicProvider().descriptor,
     getImageProvider().descriptor,
     getVideoProvider().descriptor,
     getStockProvider().descriptor,
+    getSubtitleProvider().descriptor,
     getVideoRenderer().descriptor,
+    getPublisher().descriptor,
+    getAnalyticsProvider().descriptor,
   ];
 }

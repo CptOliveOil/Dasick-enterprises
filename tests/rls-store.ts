@@ -77,6 +77,8 @@ const BUSINESS_SCOPED: ReadonlySet<string> = new Set([
   'youtube_metadata',
   'islamic_research',
   'islamic_source_checks',
+  'youtube_captions',
+  'youtube_copyright_reviews',
 ]);
 
 /** The message Postgres actually produces, so tests assert on the real thing. */

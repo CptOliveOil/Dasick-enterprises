@@ -166,3 +166,32 @@ export const timelineSchema = z.object({
 });
 
 export type TimelineOutput = z.infer<typeof timelineSchema>;
+
+/**
+ * A copyright review.
+ *
+ * `severity` separates what must be fixed before publishing from what needs an
+ * attribution line — conflating them either blocks shippable work or ships
+ * unshippable work.
+ */
+export const copyrightReviewResponseSchema = z.object({
+  verdict: z.enum(['clear', 'attribution_required', 'review_needed', 'blocked']),
+  summary: z.string(),
+  findings: z
+    .array(
+      z.object({
+        asset: z.string(),
+        issue: z.string(),
+        detail: z.string(),
+        // Benign first, matching every other schema here: the simulated
+        // provider always picks the first variant, and a demo that randomly
+        // declares copyright violations would be manufacturing failures rather
+        // than standing in for a real review.
+        severity: z.enum(['advisory', 'attribution', 'blocking']),
+        recommendation: z.string(),
+      }),
+    )
+    .default([]),
+  /** Attribution lines to place in the description, verbatim. */
+  attribution_required: z.array(z.string()).default([]),
+});
