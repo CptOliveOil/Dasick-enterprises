@@ -34,6 +34,7 @@ accounting.
 - [Pokémon research](#pokémon-research)
 - [Galaxy architecture](#galaxy-architecture)
 - [The AI YouTube Studio](#the-ai-youtube-studio)
+- [Connecting real providers](#connecting-real-providers)
 - [Approvals: the editorial review](#approvals-the-editorial-review)
 - [Resolving the canonical script](#resolving-the-canonical-script)
 - [Business Intelligence Memory](#business-intelligence-memory)
@@ -1289,6 +1290,73 @@ that must be true before Publish means anything.
 Nothing is invented. A section with no underlying record says so rather than
 being omitted, because a missing licence report and an empty one mean very
 different things to whoever signs off the upload.
+
+---
+
+## Connecting real providers
+
+Four real adapters are implemented. Each is **off until you configure it**, and
+each stays honestly *not connected* rather than pretending.
+
+### What is implemented
+
+| Provider | Adapter | Account needed | Cost |
+| --- | --- | --- | --- |
+| Voice | ElevenLabs | elevenlabs.io | Per character (~£2–3 per 12-minute video) |
+| Images | OpenAI Images | platform.openai.com | Per image (~£0.035 each) |
+| Stock media | Openverse | none | **Free** |
+| Publishing | YouTube Data API | Google Cloud + your channel | Free (daily quota) |
+| Analytics | YouTube Analytics API | same as publishing | Free |
+
+### Environment variables
+
+Add these to `.env.local`. **Never paste a key into a chat, a commit or an
+issue.** Nothing here is prefixed `NEXT_PUBLIC_`, so none of it reaches the
+browser.
+
+```bash
+# Narration
+VOICE_PROVIDER=elevenlabs
+VOICE_PROVIDER_API_KEY=...
+VOICE_ID=...                      # from your ElevenLabs voice library
+VOICE_MODEL=eleven_multilingual_v2 # optional
+
+# Images
+IMAGE_PROVIDER=openai
+IMAGE_PROVIDER_API_KEY=sk-...
+IMAGE_MODEL=gpt-image-1            # optional
+
+# Stock media — no key, just name it
+STOCK_PROVIDER=openverse
+
+# YouTube publishing and analytics
+YOUTUBE_CLIENT_ID=...
+YOUTUBE_CLIENT_SECRET=...
+YOUTUBE_REFRESH_TOKEN=...
+YOUTUBE_CATEGORY_ID=27             # optional; 27 is Education
+```
+
+The YouTube refresh token is obtained once through Google's OAuth consent
+screen with the `youtube.upload`, `youtube.readonly` and
+`yt-analytics.readonly` scopes. It is stored server-side only.
+
+### Safety properties
+
+- **Demo Mode never spends**, even with every key set. The registry checks the
+  mode *before* the credentials, so a stray key on a developer machine cannot
+  bill anyone for running the demo.
+- **Testing a connection never generates anything.** Each test uses the
+  provider's cheapest free call — read the subscription, list models, name the
+  channel. Opening Settings costs nothing.
+- **Keys never leave the server.** Provider descriptors sent to the browser name
+  the *variables* required, never their values, and `redact()` scrubs anything
+  key-shaped out of every error before it reaches a database row or a screen.
+- **Uploads default to private** and are never retried automatically — a
+  retried upload is a duplicate video.
+- **Revenue and impressions are never invented.** The analytics adapter requests
+  only what the API genuinely returns for a channel owner.
+- **Production Mode rejects simulated media.** If any asset in a real mission
+  came from a simulated provider, quality control fails with a blocking issue.
 
 ---
 

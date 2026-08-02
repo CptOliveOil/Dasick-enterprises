@@ -1,6 +1,7 @@
 import 'server-only';
 import type { z } from 'zod';
 import { uuid } from '@/lib/ids';
+import { isBillable } from '@/lib/modes';
 import { metadataResponseSchema, qualityCheckResponseSchema } from '@/schemas/production';
 import { assetLocalPath } from '@/lib/media/assets';
 import { probeMedia } from '@/lib/media/ffmpeg';
@@ -252,6 +253,30 @@ async function gatherFacts(
 ): Promise<Facts> {
   const video = await resolveVideo(ctx);
   const issues: QualityIssue[] = [];
+
+  // Production Mode honesty. A real workspace must never contain a simulated
+  // asset, so finding one is blocking rather than advisory: the alternative is
+  // an operator approving a video whose narration is silence and whose stills
+  // are grey rectangles, having been told it passed.
+  if (isBillable() && video) {
+    const assets = await ctx.store
+      .list('media_assets', { where: { business_id: video.business_id } })
+      .catch(() => []);
+    const simulated = assets.filter(
+      (asset) => asset.video_id === video.id && asset.provider === 'simulated',
+    );
+    if (simulated.length > 0) {
+      issues.push({
+        code: 'simulated_asset_in_production',
+        severity: 'blocking',
+        message: `${simulated.length} asset(s) in this video came from the simulated provider. Production Mode must contain no placeholder media.`,
+        remedy:
+          'Connect the provider that should have produced them, then retry the step that generated each one. Completed work is kept.',
+        scene_number: null,
+      });
+    }
+  }
+
   const measured: YoutubeQualityCheck['measured'] = {
     duration_seconds: null,
     has_audio_track: null,

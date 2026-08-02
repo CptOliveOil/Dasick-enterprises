@@ -24,6 +24,10 @@ import {
   UnconnectedVideoProvider,
   UnconnectedVoiceProvider,
 } from './unconnected';
+import { ElevenLabsVoiceProvider, elevenLabsConfigured } from './elevenlabs';
+import { OpenAiImageProvider, openAiImagesConfigured } from './openai-images';
+import { OpenverseStockProvider, openverseConfigured } from './openverse';
+import { YouTubeAnalyticsProvider, YouTubePublisher, youtubeConfigured } from './youtube';
 import type {
   AnalyticsProvider,
   ImageProvider,
@@ -57,6 +61,19 @@ export function simulationAllowed(mode: Mode = currentMode()): boolean {
   return modeAllowsSimulation(mode);
 }
 
+/**
+ * Whether a real, billable adapter may be used at all.
+ *
+ * Demo Mode is defined as "nothing can be spent, no external call is made", so
+ * a demo workspace that happens to have an ElevenLabs key in its environment
+ * must still narrate with silence. Checking the credentials first — which is
+ * the obvious way to write this — would quietly bill someone for running the
+ * demo, which is precisely the surprise the mode system exists to prevent.
+ */
+export function realProvidersAllowed(mode: Mode = currentMode()): boolean {
+  return mode !== 'demo';
+}
+
 function envPresent(names: string[]): boolean {
   return names.every((name) => {
     const value = process.env[name];
@@ -69,6 +86,14 @@ function envPresent(names: string[]): boolean {
  * having credentials set is reported as an explicit error rather than silently
  * behaving as if it worked.
  */
+/**
+ * Credentials are set for a provider nobody has written an adapter for.
+ *
+ * Only ever reached when real providers are permitted at all: in Demo Mode a
+ * stray key in the environment must fall through to simulation rather than
+ * throwing, or running the demo on a developer's machine breaks the moment
+ * they configure anything.
+ */
 function unregistered(kind: string, providerName: string): never {
   throw new Error(
     `${kind} provider "${providerName}" has credentials but no adapter is registered. ` +
@@ -77,25 +102,30 @@ function unregistered(kind: string, providerName: string): never {
 }
 
 export function getVoiceProvider(): VoiceProvider {
-  if (envPresent(VOICE_ENV)) unregistered('Voice', config.voice.provider ?? 'unknown');
+  if (realProvidersAllowed() && elevenLabsConfigured()) return new ElevenLabsVoiceProvider();
+  if (realProvidersAllowed() && envPresent(VOICE_ENV)) unregistered('Voice', config.voice.provider ?? 'unknown');
   if (simulationAllowed()) return new SimulatedVoiceProvider();
   return new UnconnectedVoiceProvider(VOICE_ENV);
 }
 
 export function getImageProvider(): ImageProvider {
-  if (envPresent(IMAGE_ENV)) unregistered('Image', config.image.provider ?? 'unknown');
+  if (realProvidersAllowed() && openAiImagesConfigured()) return new OpenAiImageProvider();
+  if (realProvidersAllowed() && envPresent(IMAGE_ENV)) unregistered('Image', config.image.provider ?? 'unknown');
   if (simulationAllowed()) return new SimulatedImageProvider();
   return new UnconnectedImageProvider(IMAGE_ENV);
 }
 
 export function getVideoProvider(): VideoProvider {
-  if (envPresent(VIDEO_ENV)) unregistered('Video', config.video.provider ?? 'unknown');
+  if (realProvidersAllowed() && envPresent(VIDEO_ENV)) unregistered('Video', config.video.provider ?? 'unknown');
   if (simulationAllowed()) return new SimulatedVideoProvider();
   return new UnconnectedVideoProvider(VIDEO_ENV);
 }
 
 export function getStockProvider(): StockMediaProvider {
-  if (envPresent(STOCK_ENV)) unregistered('Stock media', process.env.STOCK_PROVIDER ?? 'unknown');
+  // Openverse needs no key — it is an open API — so it is configured by naming
+  // it alone. That is why STOCK_ENV is checked after it rather than before.
+  if (realProvidersAllowed() && openverseConfigured()) return new OpenverseStockProvider();
+  if (realProvidersAllowed() && envPresent(STOCK_ENV)) unregistered('Stock media', process.env.STOCK_PROVIDER ?? 'unknown');
   if (simulationAllowed()) return new SimulatedStockProvider();
   return new UnconnectedStockProvider(STOCK_ENV);
 }
@@ -117,25 +147,25 @@ export function getVideoRenderer(): VideoRenderer {
 /* ------------------------------------------------------------------ */
 
 export function getMusicProvider(): MusicProvider {
-  if (envPresent(MUSIC_ENV)) unregistered('Music', process.env.MUSIC_PROVIDER ?? 'unknown');
+  if (realProvidersAllowed() && envPresent(MUSIC_ENV)) unregistered('Music', process.env.MUSIC_PROVIDER ?? 'unknown');
   if (simulationAllowed()) return new SimulatedMusicProvider();
   return new UnconnectedMusicProvider(MUSIC_ENV);
 }
 
 export function getSubtitleProvider(): SubtitleProvider {
-  if (envPresent(SUBTITLE_ENV)) unregistered('Subtitle', process.env.SUBTITLE_PROVIDER ?? 'unknown');
+  if (realProvidersAllowed() && envPresent(SUBTITLE_ENV)) unregistered('Subtitle', process.env.SUBTITLE_PROVIDER ?? 'unknown');
   if (simulationAllowed()) return new SimulatedSubtitleProvider();
   return new UnconnectedSubtitleProvider(SUBTITLE_ENV);
 }
 
 export function getPublisher(): Publisher {
-  if (envPresent(PUBLISHER_ENV)) unregistered('Publisher', 'youtube');
+  if (realProvidersAllowed() && youtubeConfigured()) return new YouTubePublisher();
   if (simulationAllowed()) return new SimulatedPublisher();
   return new UnconnectedPublisher(PUBLISHER_ENV);
 }
 
 export function getAnalyticsProvider(): AnalyticsProvider {
-  if (envPresent(ANALYTICS_ENV)) unregistered('Analytics', 'youtube');
+  if (realProvidersAllowed() && youtubeConfigured()) return new YouTubeAnalyticsProvider();
   if (simulationAllowed()) return new SimulatedAnalyticsProvider();
   return new UnconnectedAnalyticsProvider(ANALYTICS_ENV);
 }

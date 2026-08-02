@@ -8,6 +8,10 @@ import {
   getStockProvider,
   getVideoProvider,
   getVideoRenderer,
+  getMusicProvider,
+  getSubtitleProvider,
+  getPublisher,
+  getAnalyticsProvider,
   getVoiceProvider,
   simulationAllowed,
 } from '@/lib/integrations/providers/registry';
@@ -52,7 +56,17 @@ export async function GET() {
 }
 
 const testSchema = z.object({
-  kind: z.enum(['voice', 'image', 'video', 'stock', 'renderer']),
+  kind: z.enum([
+    'voice',
+    'image',
+    'video',
+    'stock',
+    'renderer',
+    'music',
+    'subtitles',
+    'publisher',
+    'analytics',
+  ]),
 });
 
 /** Test connection. Runs the provider's own cheapest round trip. */
@@ -66,12 +80,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unknown provider kind.' }, { status: 400 });
   }
 
+  // Every one of these is the provider's own *cheapest* round trip — reading a
+  // subscription, listing models, naming the connected channel. None of them
+  // generates anything, because opening Settings must never spend money.
   const provider = {
     voice: getVoiceProvider,
     image: getImageProvider,
     video: getVideoProvider,
     stock: getStockProvider,
     renderer: getVideoRenderer,
+    music: getMusicProvider,
+    subtitles: getSubtitleProvider,
+    publisher: getPublisher,
+    analytics: getAnalyticsProvider,
   }[parsed.data.kind]();
 
   try {
