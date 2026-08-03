@@ -137,6 +137,7 @@ export function defaultProductionSettings(
     music_fade_in: 2,
     music_fade_out: 3,
     // Publishing is an external action. It stays off until deliberately enabled.
+    render_preset: 'standard',
     auto_publish_after_approval: false,
     created_at: timestamp,
     updated_at: timestamp,

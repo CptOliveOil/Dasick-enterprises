@@ -161,8 +161,49 @@ export interface StockMediaProvider extends BaseProvider {
 /* Renderer                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * How hard the encoder should work.
+ *
+ * The trade is time against bitrate, and the useful distinction is what the
+ * output is *for*: a draft exists to be watched once and judged, a master
+ * exists to survive YouTube's own re-encode.
+ */
+export type RenderPreset = 'draft' | 'standard' | 'high';
+
+export interface RenderPresetSettings {
+  /** x264 speed preset. Slower means smaller for the same quality. */
+  speed: string;
+  /** Constant Rate Factor. Lower is better quality and a larger file. */
+  crf: number;
+  audioBitrate: string;
+  note: string;
+}
+
+export const RENDER_PRESETS: Record<RenderPreset, RenderPresetSettings> = {
+  draft: {
+    speed: 'ultrafast',
+    crf: 28,
+    audioBitrate: '128k',
+    note: 'Fast and rough. For watching once to decide whether the edit works.',
+  },
+  standard: {
+    speed: 'veryfast',
+    crf: 21,
+    audioBitrate: '160k',
+    note: 'The default. Indistinguishable from the master after YouTube re-encodes it.',
+  },
+  high: {
+    speed: 'slow',
+    crf: 18,
+    audioBitrate: '192k',
+    note: 'Slow, large, and the best source to hand YouTube. Use for a final master.',
+  },
+};
+
 export interface RenderRequest {
   jobId: string;
+  /** Defaults to `standard` when a caller does not choose. */
+  preset?: RenderPreset;
   width: number;
   height: number;
   fps: number;

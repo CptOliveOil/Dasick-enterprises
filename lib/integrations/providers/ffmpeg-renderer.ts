@@ -4,6 +4,7 @@ import {
   ffmpegAvailable,
   runFfmpeg,
 } from '@/lib/media/ffmpeg';
+import { RENDER_PRESETS } from './types';
 import type {
   ProviderDescriptor,
   RenderRequest,
@@ -82,7 +83,15 @@ export class FfmpegRenderer implements VideoRenderer {
 
     // --- Inputs -----------------------------------------------------------
     request.clips.forEach((clip) => {
-      if (clip.kind === 'image') {
+      if (clip.kind === 'image' && clip.animation !== 'none') {
+        // A single frame, deliberately not looped. `zoompan` generates `d`
+        // output frames from each *input* frame, so a looped four-second still
+        // at 30fps would hand it 120 frames and get 14,400 back — an eight
+        // minute clip where four seconds were wanted. Feeding it one frame and
+        // letting it own the duration is the only construction that produces
+        // the length that was asked for.
+        args.push('-i', clip.filePath);
+      } else if (clip.kind === 'image') {
         args.push('-loop', '1', '-t', clip.durationSeconds.toFixed(3), '-i', clip.filePath);
       } else {
         args.push('-t', clip.durationSeconds.toFixed(3), '-i', clip.filePath);
@@ -101,10 +110,14 @@ export class FfmpegRenderer implements VideoRenderer {
     const { width, height, fps } = request;
     request.clips.forEach((clip, i) => {
       const frames = Math.max(1, Math.round(clip.durationSeconds * fps));
-      const motion = kenBurns(clip.animation, frames, width, height);
+      const motion = kenBurns(clip.animation, frames, width, height, fps);
+      // `fps` belongs *after* the motion filter, or inside it — never before.
+      // zoompan multiplies frames, so rate-limiting first and zooming second
+      // multiplies the clip's length by its own frame count.
+      const rate = motion ? '' : `,fps=${fps}`;
       filters.push(
         `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
-          `crop=${width}:${height},setsar=1,fps=${fps}${motion}[v${i}]`,
+          `crop=${width}:${height},setsar=1${rate}${motion}[v${i}]`,
       );
     });
 
@@ -178,13 +191,14 @@ export class FfmpegRenderer implements VideoRenderer {
     args.push('-map', `[${current}]`);
     if (audioLabel) args.push('-map', `[${audioLabel}]`);
 
+    const preset = RENDER_PRESETS[request.preset ?? 'standard'];
     args.push(
       '-c:v',
       'libx264',
       '-preset',
-      'veryfast',
+      preset.speed,
       '-crf',
-      '21',
+      String(preset.crf),
       '-pix_fmt',
       'yuv420p',
       '-r',
@@ -192,7 +206,7 @@ export class FfmpegRenderer implements VideoRenderer {
       '-movflags',
       '+faststart',
     );
-    if (audioLabel) args.push('-c:a', 'aac', '-b:a', '160k');
+    if (audioLabel) args.push('-c:a', 'aac', '-b:a', preset.audioBitrate);
     args.push('-t', elapsed.toFixed(3), request.outputPath);
 
     request.onProgress?.(25);
@@ -210,17 +224,27 @@ export class FfmpegRenderer implements VideoRenderer {
 }
 
 /**
- * Ken Burns via `zoompan`. The filter runs per output frame, so `d` is the
- * frame count and the zoom expression has to be written in terms of `on`.
+ * Ken Burns via `zoompan`.
+ *
+ * `d` is the number of output frames generated *per input frame*, which is the
+ * trap in this filter: applied to a looped still it multiplies rather than
+ * sets the duration. The caller feeds it a single frame for exactly that
+ * reason, and the rate is set here so the clip lasts `frames / fps`.
+ *
+ * Motion is deliberately slight — a 12% zoom across the whole shot. A
+ * documentary wants the picture to breathe, not to lurch.
  */
 function kenBurns(
   animation: RenderRequest['clips'][number]['animation'],
   frames: number,
   width: number,
   height: number,
+  fps: number,
 ): string {
   if (animation === 'none') return '';
-  const size = `:s=${width}x${height}`;
+  // Output size and rate are set on the filter itself, so the clip's length is
+  // exactly `frames / fps` regardless of what the input frame rate was.
+  const size = `:s=${width}x${height}:fps=${fps}`;
   const step = 0.0009;
   switch (animation) {
     case 'zoom_in':

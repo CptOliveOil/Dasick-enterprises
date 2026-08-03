@@ -15,6 +15,7 @@ import type {
   YoutubeRenderJob,
   YoutubeTimeline,
 } from '@/types/production';
+import { fitTimelineToNarration, validateTimeline } from '@/lib/production/timeline-validation';
 import { blockProduction, resolveSettings, resolveVideo, setStage } from './context';
 
 /**
@@ -123,6 +124,27 @@ export const videoAssemble: CapabilityHandler = {
       return item;
     });
 
+    // --- Validate before spending an encode -------------------------------
+    // Rendering a twelve-minute documentary is minutes of CPU. A timeline that
+    // was never going to produce a usable video should fail in milliseconds,
+    // and the check that matters is coverage: pictures that end before the
+    // narration render perfectly happily as black over a voice still talking.
+    const fitted = narrationAsset.duration
+      ? fitTimelineToNarration(items, narrationAsset.duration)
+      : items;
+    const check = validateTimeline(fitted, narrationAsset.duration ?? null);
+    if (check.blocking.length > 0) {
+      return blockProduction(
+        ctx,
+        video,
+        `The timeline cannot be rendered as it stands: ${check.blocking
+          .map((problem) => problem.message)
+          .join(' ')}`,
+      );
+    }
+    const finalItems = fitted;
+    const finalDuration = finalItems[finalItems.length - 1]?.end ?? Number(cursor.toFixed(3));
+
     const timestamp = new Date().toISOString();
     const timeline: YoutubeTimeline = {
       id: uuid(),
@@ -130,8 +152,8 @@ export const videoAssemble: CapabilityHandler = {
       video_id: video.id,
       mission_id: ctx.task.mission_id,
       task_id: ctx.task.id,
-      items,
-      total_duration: Number(cursor.toFixed(3)),
+      items: finalItems,
+      total_duration: Number(finalDuration.toFixed(3)),
       width: settings.width,
       height: settings.height,
       fps: settings.fps,
@@ -153,8 +175,8 @@ export const videoAssemble: CapabilityHandler = {
       cues = buildCues(
         scenes.map((scene, i) => ({
           text: scene.narration,
-          start: items[i]!.start,
-          duration: items[i]!.end - items[i]!.start,
+          start: finalItems[i]!.start,
+          duration: finalItems[i]!.end - finalItems[i]!.start,
         })),
       );
       const srt = await createMediaAsset(ctx.store, {
@@ -287,6 +309,10 @@ export const videoAssemble: CapabilityHandler = {
             const outputPath = path.join(dir, 'final.mp4');
             const result = await renderer.renderTimeline({
               jobId: job.id,
+              // A draft to judge the edit, a master to hand YouTube. The
+              // operator's channel setting decides; the dossier reports which
+              // was used, so a draft can never be mistaken for a master.
+              preset: settings.render_preset ?? 'standard',
               width: settings.width,
               height: settings.height,
               fps: settings.fps,

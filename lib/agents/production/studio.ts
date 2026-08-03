@@ -9,6 +9,8 @@ import {
 } from '@/lib/integrations/providers/registry';
 import type { CapabilityHandler } from '@/lib/agents/capabilities';
 import type { RunContext } from '@/lib/agents/context';
+import { isSimulatedProvider, summariseProvenance } from '@/lib/production/provenance';
+import { fitToAudio, separate, toSrt, toVtt, validateCues } from '@/lib/media/subtitles';
 import { blockProduction, resolveScript, resolveVideo } from './context';
 import { baseProductionContext } from './prompt';
 
@@ -57,6 +59,16 @@ export const subtitleGenerate: CapabilityHandler = {
       );
     }
 
+    // The narration that was actually produced, so cues can be fitted to it
+    // rather than to a words-per-minute guess made before it existed.
+    const narration = video?.voiceover_id
+      ? await ctx.store.get('youtube_voiceovers', video.voiceover_id).catch(() => null)
+      : null;
+    const narrationAsset = narration?.audio_asset_id
+      ? await ctx.store.get('media_assets', narration.audio_asset_id).catch(() => null)
+      : null;
+    const audioDuration = narrationAsset?.duration ?? narration?.audio_duration ?? null;
+
     const transcript = script.sections.map((section) => section.body).join('\n\n');
     const result = await provider.generateSubtitles({
       // Alignment against the real narration when a provider can hear it;
@@ -67,6 +79,14 @@ export const subtitleGenerate: CapabilityHandler = {
       lineLength: 42,
     });
 
+    // Estimated cues drift further with every line; scaling against the real
+    // duration removes the accumulation, which is the part a viewer notices.
+    // Alignment from the provider is left alone — it is already correct.
+    const cues = result.aligned
+      ? result.cues
+      : separate(fitToAudio(result.cues, audioDuration));
+    const problems = validateCues(cues, audioDuration);
+
     const id = uuid();
     await ctx.store.insert('youtube_captions', {
       id,
@@ -75,8 +95,9 @@ export const subtitleGenerate: CapabilityHandler = {
       script_id: script.id,
       task_id: ctx.task.id,
       language: 'en',
-      cues: result.cues,
-      vtt: result.vtt,
+      cues,
+      vtt: toVtt(cues),
+      srt: toSrt(cues),
       aligned: result.aligned,
       provider: provider.descriptor.name,
       is_demo: result.simulated,
@@ -84,8 +105,19 @@ export const subtitleGenerate: CapabilityHandler = {
     });
 
     return {
-      summary: `wrote ${result.cues.length} caption cues${result.aligned ? '' : ' (timings estimated from the script, not heard from the audio)'}`,
-      output: { caption_id: id, cues: result.cues.length, aligned: result.aligned },
+      summary: `wrote ${cues.length} caption cues${
+        result.aligned
+          ? ' from provider word timings'
+          : audioDuration
+            ? ` fitted to ${Math.round(audioDuration)}s of narration`
+            : ' (timings estimated from the script — the narration duration is unknown)'
+      }${problems.length > 0 ? `, ${problems.length} needing attention` : ''}`,
+      output: {
+        caption_id: id,
+        cues: cues.length,
+        aligned: result.aligned,
+        problems: problems.length,
+      },
       spend:
         result.cost > 0
           ? { amount: result.cost, provider: provider.descriptor.name, product: 'subtitles' }
@@ -125,21 +157,29 @@ export const copyrightReview: CapabilityHandler<
       .catch(() => []);
     const forVideo = assets.filter((asset) => !video || asset.video_id === video.id);
 
+    // Classification is done deterministically before the model sees anything,
+    // so the model is asked to *comment* on provenance rather than to decide
+    // it. A model can be argued into "this is probably fine"; a lookup table
+    // cannot.
+    const provenance = summariseProvenance(forVideo);
+
     return [
       baseProductionContext(ctx),
       '',
       'Review this video for copyright, licensing and attribution risk before it is published.',
       '',
-      'Assets used, with the licence recorded for each:',
+      'Assets used, already classified from what was recorded about each one:',
       '```json',
       JSON.stringify(
-        forVideo.map((asset) => ({
-          id: asset.id,
-          type: asset.type,
-          provider: asset.provider,
-          licence: (asset.metadata as Record<string, unknown>)?.licence ?? null,
-          source: (asset.metadata as Record<string, unknown>)?.source ?? null,
-          generated: Boolean(asset.generation_prompt),
+        provenance.records.map((record) => ({
+          asset: record.assetId,
+          provenance: record.provenance,
+          provider: record.provider,
+          licence: record.licence,
+          creator: record.creator,
+          source: record.source,
+          restrictions: record.restrictions,
+          why: record.reason,
         })),
         null,
         2,
@@ -149,17 +189,65 @@ export const copyrightReview: CapabilityHandler<
       `Scenes: ${scenes.length}`,
       '',
       'Rules:',
-      '- An asset with no recorded licence is a finding. Do not assume it is fine.',
-      '- AI-generated imagery still carries risk when it depicts a real person, a trademark or a recognisable character. Say so.',
+      '- The `provenance` on each asset is already decided and is not yours to change. Comment on it.',
+      '- `unresolved` means nobody knows what the asset is. That always blocks.',
+      '- `fair_use_review_required` means a person must decide. Explain what they are deciding, in one or two plain sentences.',
+      '- Commentary and factual discussion about a franchise are ordinary and are not the problem. Reusing that franchise\'s own artwork, card scans, screenshots or broadcast footage is the problem. Keep those two apart.',
+      '- Never state that anything is legally safe, cleared, or fair use. You are not giving legal advice and this video has not been reviewed by anyone who could.',
       '- Distinguish what must be fixed before publishing from what merely needs attribution.',
-      '- `verdict` is `clear` only when nothing needs action before publishing.',
       '- Do not invent licence terms. If you do not know, the finding is that nobody knows.',
     ].join('\n');
   },
 
   async persist(ctx, data) {
     const video = await resolveVideo(ctx);
-    const blocking = data.findings.filter((finding) => finding.severity === 'blocking');
+    const businessId = ctx.business?.id ?? ctx.task.business_id ?? '';
+    const assets = (
+      await ctx.store.list('media_assets', { where: { business_id: businessId } }).catch(() => [])
+    ).filter((asset) => !video || asset.video_id === video.id);
+    const provenance = summariseProvenance(assets);
+
+    // Simulated placeholders are unresolved by definition. They are handled by
+    // exactly one mechanism — quality control's Production Mode check — rather
+    // than by two, so a demo run is not stopped here by the absence of licences
+    // for media that was never real. In a real workspace nothing is simulated,
+    // so this filter removes nothing.
+    const enforceable = summariseProvenance(
+      assets.filter((asset) => !isSimulatedProvider(asset.provider)),
+    );
+
+    // The model's findings are merged with the deterministic ones, and the
+    // deterministic ones win. An `unresolved` asset blocks whether or not the
+    // model noticed it, and a model cannot clear one by omitting it.
+    const enforced = [
+      ...enforceable.blocking.map((record) => ({
+        asset: record.assetId,
+        issue: 'Unresolved provenance',
+        detail: record.reason,
+        severity: 'blocking' as const,
+        recommendation:
+          'Replace this asset, or record where it came from and under what licence, then re-run the review.',
+      })),
+      ...enforceable.manualReview.map((record) => ({
+        asset: record.assetId,
+        issue: 'Needs your judgement',
+        detail: record.reason,
+        severity: 'attribution' as const,
+        recommendation:
+          'Decide yourself whether this use is defensible, or replace the asset. Command Centre will not decide this for you and makes no legal guarantee either way.',
+      })),
+    ];
+
+    const findings = [...enforced, ...data.findings];
+    const blocking = findings.filter((finding) => finding.severity === 'blocking');
+    const verdict =
+      blocking.length > 0
+        ? ('blocked' as const)
+        : enforceable.manualReview.length > 0
+          ? ('review_needed' as const)
+          : provenance.attributions.length > 0
+            ? ('attribution_required' as const)
+            : data.verdict;
     const id = uuid();
 
     await ctx.store.insert('youtube_copyright_reviews', {
@@ -167,10 +255,14 @@ export const copyrightReview: CapabilityHandler<
       business_id: ctx.business?.id ?? ctx.task.business_id ?? '',
       video_id: video?.id ?? null,
       task_id: ctx.task.id,
-      verdict: data.verdict,
+      verdict,
       summary: data.summary,
-      findings: data.findings,
-      attribution_required: data.attribution_required,
+      findings,
+      // Merged: whatever the model suggested, plus every credit line the stock
+      // adapter actually recorded. Losing one of those is a licence breach.
+      attribution_required: [
+        ...new Set([...provenance.attributions, ...data.attribution_required]),
+      ],
       is_demo: false,
       created_at: now(),
     });
@@ -178,7 +270,7 @@ export const copyrightReview: CapabilityHandler<
     if (blocking.length > 0) {
       return {
         summary: `found ${blocking.length} blocking copyright ${blocking.length === 1 ? 'issue' : 'issues'}`,
-        output: { copyright_review_id: id, verdict: data.verdict, blocking: blocking.length },
+        output: { copyright_review_id: id, verdict, blocking: blocking.length },
         // Publishing with a known blocking issue is the one mistake that cannot
         // be undone by deleting the video, so the pipeline stops here.
         blocked: `${blocking.length} copyright issue(s) must be resolved before this can be published: ${blocking
@@ -188,8 +280,13 @@ export const copyrightReview: CapabilityHandler<
     }
 
     return {
-      summary: `copyright review ${data.verdict} — ${data.findings.length} finding(s)`,
-      output: { copyright_review_id: id, verdict: data.verdict, blocking: 0 },
+      summary: `copyright review ${verdict} — ${findings.length} finding(s), ${enforceable.manualReview.length} needing your judgement`,
+      output: {
+        copyright_review_id: id,
+        verdict,
+        blocking: 0,
+        manual_review: enforceable.manualReview.length,
+      },
     };
   },
 };

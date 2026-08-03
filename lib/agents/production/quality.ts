@@ -2,6 +2,7 @@ import 'server-only';
 import type { z } from 'zod';
 import { uuid } from '@/lib/ids';
 import { isBillable } from '@/lib/modes';
+import { isSimulatedProvider, summariseProvenance } from '@/lib/production/provenance';
 import { metadataResponseSchema, qualityCheckResponseSchema } from '@/schemas/production';
 import { assetLocalPath } from '@/lib/media/assets';
 import { probeMedia } from '@/lib/media/ffmpeg';
@@ -263,7 +264,7 @@ async function gatherFacts(
       .list('media_assets', { where: { business_id: video.business_id } })
       .catch(() => []);
     const simulated = assets.filter(
-      (asset) => asset.video_id === video.id && asset.provider === 'simulated',
+      (asset) => asset.video_id === video.id && isSimulatedProvider(asset.provider),
     );
     if (simulated.length > 0) {
       issues.push({
@@ -272,6 +273,44 @@ async function gatherFacts(
         message: `${simulated.length} asset(s) in this video came from the simulated provider. Production Mode must contain no placeholder media.`,
         remedy:
           'Connect the provider that should have produced them, then retry the step that generated each one. Completed work is kept.',
+        scene_number: null,
+      });
+    }
+  }
+
+  // Unresolved provenance is a hard stop, not an opinion. It is checked here as
+  // well as in the copyright step because quality control is the last gate
+  // before a person is asked to approve publishing, and a review that ran
+  // before an asset was replaced is a review of a different video.
+  if (isBillable() && video) {
+    const assets = await ctx.store
+      .list('media_assets', { where: { business_id: video.business_id } })
+      .catch(() => []);
+    // Simulated assets are unresolved by definition and are already reported by
+    // the check above. Counting them twice would bury a genuinely unlicensed
+    // real asset under a pile of expected placeholder findings.
+    const forVideo = assets.filter(
+      (asset) => asset.video_id === video.id && !isSimulatedProvider(asset.provider),
+    );
+    const provenance = summariseProvenance(forVideo);
+
+    if (provenance.blocking.length > 0) {
+      issues.push({
+        code: 'unresolved_copyright',
+        severity: 'blocking',
+        message: `${provenance.blocking.length} asset(s) have no recorded licence or source, so nobody can say what they are.`,
+        remedy:
+          'Open the licence report, replace those assets or record where they came from, then re-run the copyright review.',
+        scene_number: null,
+      });
+    }
+    if (provenance.manualReview.length > 0) {
+      issues.push({
+        code: 'copyright_manual_review',
+        severity: 'warning',
+        message: `${provenance.manualReview.length} asset(s) need your judgement before publishing — they touch property this workspace has no licence for.`,
+        remedy:
+          'Read the licence report and decide. Command Centre will not decide this for you and makes no legal guarantee either way.',
         scene_number: null,
       });
     }

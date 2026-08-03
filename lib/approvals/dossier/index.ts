@@ -5,6 +5,7 @@ import { assembleDossier, registerDossier, resetDossiers } from './registry';
 import { genericDossier } from './generic';
 import { scriptDossier } from './script';
 import { mediaDossier } from './media';
+import { studioDossier } from './studio';
 import { spendDossier } from './spend';
 import type { Dossier } from './types';
 
@@ -20,6 +21,10 @@ import type { Dossier } from './types';
 export function registerBuiltInDossiers(): void {
   resetDossiers();
   registerDossier(scriptDossier);
+  // Before the media dossier: a final video approval is a publishing decision,
+  // not a look at a file, and it needs the licences, the quality report and the
+  // money alongside the picture.
+  registerDossier(studioDossier);
   registerDossier(mediaDossier);
   registerDossier(spendDossier);
 }

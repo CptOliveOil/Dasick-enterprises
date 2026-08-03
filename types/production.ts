@@ -374,6 +374,11 @@ export interface ProductionSettings {
   music_volume: number;
   music_fade_in: number;
   music_fade_out: number;
+  /**
+   * Encoder effort. `standard` unless the operator chose otherwise — a draft
+   * is for judging an edit, a master is for handing YouTube the best source.
+   */
+  render_preset: import('@/lib/integrations/providers/types').RenderPreset;
   /** Off by default. Publishing is an external action and stays gated. */
   auto_publish_after_approval: boolean;
   created_at: Timestamp;
@@ -439,6 +444,8 @@ export interface YoutubeCaptions {
   cues: CaptionCue[];
   /** WebVTT, uploaded as the platform's own caption track. */
   vtt: string;
+  /** SubRip. What every editor and offline player expects. */
+  srt: string;
   /**
    * True when the timings came from hearing the narration rather than from
    * estimating against the script. Estimated cues drift, so quality control

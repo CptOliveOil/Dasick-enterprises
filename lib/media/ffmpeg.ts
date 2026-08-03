@@ -72,6 +72,12 @@ export async function runFfmpeg(
   const binary = ffmpegPath();
   if (!binary) throw new FfmpegError('ffmpeg is not available in this environment.', '');
 
+  // Opt-in diagnostics. The full argument list is the only thing that explains
+  // a filter-graph failure, and it is far too long for ordinary logs.
+  if (process.env.FFMPEG_DEBUG === '1') {
+    console.log('[ffmpeg]', JSON.stringify(args));
+  }
+
   const began = Date.now();
   try {
     const { stdout, stderr } = await execFileAsync(binary, ['-hide_banner', '-y', ...args], {

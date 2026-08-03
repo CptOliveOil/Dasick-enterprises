@@ -35,6 +35,7 @@ accounting.
 - [Galaxy architecture](#galaxy-architecture)
 - [The AI YouTube Studio](#the-ai-youtube-studio)
 - [Connecting real providers](#connecting-real-providers)
+- [Studio: render, captions, licences](#studio-render-captions-licences)
 - [Approvals: the editorial review](#approvals-the-editorial-review)
 - [Resolving the canonical script](#resolving-the-canonical-script)
 - [Business Intelligence Memory](#business-intelligence-memory)
@@ -1357,6 +1358,86 @@ screen with the `youtube.upload`, `youtube.readonly` and
   only what the API genuinely returns for a channel owner.
 - **Production Mode rejects simulated media.** If any asset in a real mission
   came from a simulated provider, quality control fails with a blocking issue.
+
+---
+
+## Studio: render, captions, licences
+
+### The renderer
+
+One renderer, strengthened rather than replaced: local ffmpeg, 1920×1080, 30fps,
+H.264 video and AAC audio, `+faststart` for streaming. Stills get a slight Ken
+Burns move, scenes crossfade or cut, narration and music are mixed, and captions
+can be burned in.
+
+Three presets — `draft` (ultrafast/CRF 28), `standard` (the default) and `high`
+(slow/CRF 18) — chosen per channel and reported in the final review, so a draft
+can never be mistaken for a master.
+
+**A twelve-minute narration produces a twelve-minute video.** Scene durations
+are scaled proportionally to the *measured* narration length, so a shot the
+visual director wanted held stays longer than one it wanted to pass through.
+`validateTimeline` then refuses to spend an encode on a timeline that would
+produce black: pictures ending before the voice does is blocking, a gap between
+scenes is blocking, a scene with no asset is blocking.
+
+An opt-in smoke test renders a real MP4 from local fixtures and checks it with a
+probe — no paid provider, no credentials:
+
+```bash
+RENDER_SMOKE=1 npx vitest run tests/render-smoke.test.ts
+```
+
+It found a genuine bug on its first run: `fps` was applied *before* `zoompan`,
+and since zoompan generates `d` frames from every *input* frame, a four-second
+still became eight minutes and the encode produced nothing at all. Stills with
+motion are now fed as a single frame with the filter owning the duration.
+
+### Captions
+
+Both SRT and VTT, from the same cues. Where the voice provider returns word
+timings they are used as-is; otherwise cues are estimated from the script and
+then **fitted to the measured narration length**, which removes the drift that
+otherwise accumulates line by line. `aligned` records which happened, and the
+review says so rather than claiming a sync nobody measured.
+
+`validateCues` rejects overlaps, empty cues, cues that run past the audio, and
+lines too long to read.
+
+### Provenance and licences
+
+Every visual asset is classified deterministically from what was *recorded*
+about it — never by asking a model, which can be argued into "probably fine".
+The default is `unresolved`, and `unresolved` blocks.
+
+| Provenance | Effect |
+| --- | --- |
+| `generated_original` | Allowed, subject to the provider's terms |
+| `owner_uploaded` | Allowed; the rights responsibility is stated as yours |
+| `public_domain` | Allowed, source retained |
+| `licensed_stock` | Allowed, licence and attribution retained |
+| `permitted_archive` | Allowed, source retained |
+| `fair_use_review_required` | **You** decide before publishing |
+| `unresolved` | **Blocks** |
+
+An image generated from a prompt naming protected property — Charizard,
+Nintendo, a franchise logo — is `fair_use_review_required`, not
+`generated_original`: an original rendering of a trademarked character is still
+that character. A permissive licence on a *photograph of* a card does not
+license the card, so that is flagged too.
+
+The system never states that anything is legally safe. `GET
+/api/youtube/videos/<id>/licence` returns the full report (`?format=markdown` to
+download) and carries that disclaimer in the document itself.
+
+### The studio review
+
+`/youtube/studio/<approvalId>` — the video playing inline, the selected and
+alternative thumbnails, the metadata that would be published, the caption track,
+every asset's licence, the quality report, and the cost broken down by provider.
+
+**Approving is disabled until the video can actually be played.** Approving a
+video you have not watched is not a decision.
 
 ---
 
