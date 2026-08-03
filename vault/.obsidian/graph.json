@@ -1,0 +1,13 @@
+{
+  "colorGroups": [
+    { "query": "path:\"01 Architecture\"", "color": { "a": 1, "rgb": 16097316 } },
+    { "query": "path:\"04 Providers\"", "color": { "a": 1, "rgb": 3717565 } },
+    { "query": "path:\"05 Database\"", "color": { "a": 1, "rgb": 3453153 } },
+    { "query": "path:\"03 Agents\"", "color": { "a": 1, "rgb": 10851034 } },
+    { "query": "path:\"07 Bugs\"", "color": { "a": 1, "rgb": 16286585 } },
+    { "query": "path:\"08 Decisions\"", "color": { "a": 1, "rgb": 15263976 } }
+  ],
+  "showTags": false,
+  "showOrphans": true,
+  "scale": 0.8
+}
