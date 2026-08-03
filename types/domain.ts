@@ -844,6 +844,17 @@ export const ETSY_PRODUCT_STATUSES = [
 ] as const;
 export type EtsyProductStatus = (typeof ETSY_PRODUCT_STATUSES)[number];
 
+/** The Visual Director's brief before any artwork is generated. */
+export interface EtsyDesignConcept {
+  style: string;
+  palette: string[];
+  mood: string;
+  primary_subject: string;
+  composition_notes: string;
+  /** Fed directly to the image provider. Never names a real brand or IP. */
+  artwork_prompt: string;
+}
+
 export interface EtsyProduct {
   id: UUID;
   business_id: UUID;
@@ -858,6 +869,13 @@ export interface EtsyProduct {
   price: number;
   estimated_cost: number;
   status: EtsyProductStatus;
+  design_concept: EtsyDesignConcept | null;
+  artwork_asset_id: UUID | null;
+  upscaled_asset_id: UUID | null;
+  /** Aspect ratio (e.g. "1:1", "4:5") to the media asset cropped to it. */
+  variant_asset_ids: Record<string, UUID>;
+  mockup_asset_ids: UUID[];
+  package_asset_id: UUID | null;
   is_demo: boolean;
   created_at: Timestamp;
   updated_at: Timestamp;

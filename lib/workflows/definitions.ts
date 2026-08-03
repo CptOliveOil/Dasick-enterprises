@@ -507,31 +507,98 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     owner_id: null,
     business_id: null,
     key: 'etsy_product',
-    name: 'Etsy Product',
-    description: 'Research an opportunity, then draft an optimised listing for approval.',
+    name: 'Etsy Opportunity Research',
+    description:
+      'Research digital product opportunities. Approving one starts the Etsy Product Build.',
     steps: [
       {
         key: 'research',
         title: 'Product research',
         capability: 'etsy.research.opportunities',
         depends_on: [],
-        requires_approval: true,
-        approval_label: 'Approve product opportunity',
+        requires_approval: false,
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  {
+    id: stableId('workflow:etsy_product_build'),
+    owner_id: null,
+    business_id: null,
+    key: 'etsy_product_build',
+    name: 'Etsy Product Build',
+    description:
+      'The complete production pipeline for one approved opportunity: product framing, design concept, ' +
+      'artwork, upscaling, aspect-ratio variants, mockups, keywords, listing and a packaged deliverable.',
+    steps: [
+      {
+        key: 'create_product',
+        title: 'Frame the product',
+        capability: 'etsy.product.create',
+        depends_on: [],
+        requires_approval: false,
+      },
+      {
+        key: 'design_concept',
+        title: 'Design concept',
+        capability: 'etsy.design.concept',
+        depends_on: ['create_product'],
+        requires_approval: false,
+      },
+      {
+        key: 'artwork',
+        title: 'Generate artwork',
+        capability: 'etsy.artwork.generate',
+        depends_on: ['design_concept'],
+        requires_approval: false,
+      },
+      {
+        key: 'upscale',
+        title: 'Upscale artwork',
+        capability: 'etsy.artwork.upscale',
+        depends_on: ['artwork'],
+        requires_approval: false,
+      },
+      {
+        key: 'variants',
+        title: 'Aspect ratio variants',
+        capability: 'etsy.artwork.variants',
+        depends_on: ['upscale'],
+        requires_approval: false,
+      },
+      {
+        key: 'mockups',
+        title: 'Generate mockups',
+        capability: 'etsy.mockups.generate',
+        depends_on: ['upscale'],
+        requires_approval: false,
       },
       {
         key: 'keywords',
         title: 'Keyword research',
         capability: 'seo.keywords',
-        depends_on: ['research'],
+        depends_on: ['create_product'],
         requires_approval: false,
       },
       {
         key: 'listing',
         title: 'Draft listing',
         capability: 'etsy.listing.write',
-        depends_on: ['keywords'],
+        // Waits on the images too, so the listing can describe what was
+        // actually made rather than what was merely planned.
+        depends_on: ['keywords', 'variants', 'mockups'],
         requires_approval: true,
         approval_label: 'Approve Etsy listing',
+      },
+      {
+        key: 'package',
+        title: 'Package for delivery',
+        capability: 'etsy.package.zip',
+        // Runs only once the listing is approved — the same dependency-as-gate
+        // pattern the YouTube pipeline uses after script approval.
+        depends_on: ['listing'],
+        requires_approval: false,
       },
     ],
     created_at: timestamp,

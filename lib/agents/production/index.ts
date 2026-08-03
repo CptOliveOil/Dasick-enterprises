@@ -11,6 +11,7 @@ import {
   subtitleGenerate,
   youtubePublish,
 } from './studio';
+import { ETSY_PRODUCTION_HANDLERS } from './etsy';
 
 /**
  * Production capabilities, registered with the same registry the original
@@ -29,4 +30,5 @@ export const PRODUCTION_HANDLERS: CapabilityHandler<never>[] = [
   qualityCheck,
   youtubePublish,
   analyticsCollect,
+  ...ETSY_PRODUCTION_HANDLERS,
 ] as unknown as CapabilityHandler<never>[];

@@ -37,6 +37,30 @@ export const etsyListingResponseSchema = z.object({
 
 export type EtsyListingOutput = z.infer<typeof etsyListingResponseSchema>;
 
+export const etsyProductResponseSchema = z.object({
+  name: z.string().min(3).max(140),
+  description: z.string().min(20),
+  target_buyer: z.string().min(3),
+  category: z.string().min(3),
+  price: z.number().positive(),
+  assets_required: z.array(z.string()).default([]),
+  production_checklist: z.array(z.string()).default([]),
+});
+
+export type EtsyProductOutput = z.infer<typeof etsyProductResponseSchema>;
+
+export const etsyDesignConceptResponseSchema = z.object({
+  style: z.string().min(3),
+  palette: z.array(z.string()).min(2).max(6),
+  mood: z.string().min(3),
+  primary_subject: z.string().min(3),
+  composition_notes: z.string().min(10),
+  /** No real brand, character or IP name — this goes straight to an image provider. */
+  artwork_prompt: z.string().min(20),
+});
+
+export type EtsyDesignConceptOutput = z.infer<typeof etsyDesignConceptResponseSchema>;
+
 export const keywordResponseSchema = z.object({
   keywords: z
     .array(

@@ -53,6 +53,7 @@ tags:
 | `0006_real_mode.sql` | `ai_budgets`, `api_usage` indexes |
 | `0007_business_memory.sql` | `mission_outcomes` |
 | `0008_studio.sql` | `youtube_captions`, `youtube_copyright_reviews` |
+| `0009_etsy_production.sql` | `media_assets.product_id` (+ `archive` type), `etsy_products` design/artwork/mockup/package columns |
 
 ## Future improvements
 

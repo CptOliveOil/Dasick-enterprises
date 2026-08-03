@@ -109,8 +109,8 @@ export interface ImageRequest {
   width: number;
   height: number;
   style?: string;
-  /** Distinguishes a thumbnail from a scene still for providers that care. */
-  purpose?: 'scene' | 'thumbnail';
+  /** Distinguishes a thumbnail, scene still or Etsy artwork for providers that care. */
+  purpose?: 'scene' | 'thumbnail' | 'artwork';
 }
 
 export interface ImageProvider extends BaseProvider {

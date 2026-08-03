@@ -7,6 +7,7 @@ summary: Opportunity research
 related:
   - [[Etsy]]
   - [[etsy_opportunities]]
+  - [[Etsy Product Designer]]
 tags:
   - agent
 ---
@@ -33,15 +34,22 @@ tags:
 
 Demand research is separated from what is legally sellable.
 
+## What happens after this agent's work
+
+An opportunity is a proposal, not a decision. The operator approves one from
+`/etsy/opportunities`, which starts an [[Etsy Product Build]] mission handed
+to [[Etsy Product Designer]] — this agent does not build anything itself.
+
 ## Failure examples
 
 - n/a
 
 ## Future ideas
 
-- Dormant.
+- None outstanding.
 
 ## Related
 
 - [[Etsy]]
 - [[etsy_opportunities]]
+- [[Etsy Product Designer]]

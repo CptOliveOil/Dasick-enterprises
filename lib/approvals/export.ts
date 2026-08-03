@@ -109,7 +109,7 @@ export function buildDocx(markdown: string): Uint8Array {
 
 interface ZipEntry {
   name: string;
-  content: string;
+  content: string | Uint8Array;
 }
 
 const CRC_TABLE = (() => {
@@ -141,7 +141,7 @@ export function zip(entries: ZipEntry[]): Uint8Array {
 
   for (const entry of entries) {
     const name = encoder.encode(entry.name);
-    const data = encoder.encode(entry.content);
+    const data = typeof entry.content === 'string' ? encoder.encode(entry.content) : entry.content;
     const checksum = crc32(data);
 
     const local = new Uint8Array(30 + name.length + data.length);

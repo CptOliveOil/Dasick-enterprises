@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Hammer, Sparkles, X } from 'lucide-react';
 import { Badge, Button, DemoNotice, EmptyState, Field, Panel, inputClass } from '@/components/ui';
 import { ScoreBar, Section } from '@/components/layout/PageShell';
 import type { EtsyOpportunity } from '@/types/domain';
@@ -30,6 +30,7 @@ export function OpportunitiesBoard({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
 
   const generate = async () => {
     setRunning(true);
@@ -51,6 +52,34 @@ export function OpportunitiesBoard({
       setError(e instanceof Error ? e.message : 'Research failed.');
     } finally {
       setRunning(false);
+    }
+  };
+
+  const decide = async (
+    id: string,
+    status: EtsyOpportunity['status'],
+    startBuild: boolean,
+  ) => {
+    setDeciding(id);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/etsy/opportunities/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, start_build: startBuild }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? 'The decision could not be recorded.');
+      if (data.mission) {
+        router.push(`/missions/${data.mission.id}`);
+        return;
+      }
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The decision could not be recorded.');
+    } finally {
+      setDeciding(null);
     }
   };
 
@@ -139,6 +168,37 @@ export function OpportunitiesBoard({
                   <Row label="Effort" value={opportunity.production_difficulty} />
                   <Row label="Profit" value={opportunity.profit_potential} />
                 </dl>
+
+                {opportunity.status === 'proposed' && (
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--color-edge)] pt-3">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      loading={deciding === opportunity.id}
+                      onClick={() => decide(opportunity.id, 'approved', true)}
+                    >
+                      <Hammer className="h-3.5 w-3.5" />
+                      Build this product
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={deciding === opportunity.id}
+                      onClick={() => decide(opportunity.id, 'saved', false)}
+                    >
+                      Save for later
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={deciding === opportunity.id}
+                      onClick={() => decide(opportunity.id, 'rejected', false)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                  </div>
+                )}
               </Panel>
             ))}
           </div>

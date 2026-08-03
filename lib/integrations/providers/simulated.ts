@@ -115,7 +115,12 @@ export class SimulatedImageProvider extends SimulatedBase implements ImageProvid
           { text: 'SIMULATED ASSET', size: Math.round(request.height * 0.055), colour: '#f5a524' },
           { text: truncate(request.prompt, 68), size: Math.round(request.height * 0.032) },
           {
-            text: request.purpose === 'thumbnail' ? 'Thumbnail placeholder' : 'Scene placeholder',
+            text:
+              request.purpose === 'thumbnail'
+                ? 'Thumbnail placeholder'
+                : request.purpose === 'artwork'
+                  ? 'Artwork placeholder'
+                  : 'Scene placeholder',
             size: Math.round(request.height * 0.026),
             colour: '#94a3b8',
           },

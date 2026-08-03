@@ -239,6 +239,61 @@ export async function makeIslamicWorkspace() {
 }
 
 /**
+ * An Etsy business with the full product workforce: research, product
+ * framing, design, artwork, listing and keyword research — matching the
+ * capabilities `etsy_product` and `etsy_product_build` reference.
+ */
+export async function makeEtsyWorkspace() {
+  const store = new MemoryStore();
+  await store.insertMany('workflow_definitions', WORKFLOW_DEFINITIONS);
+  const business = makeBusiness({ name: 'Test Etsy Shop', slug: 'etsy', kind: 'etsy' });
+  await store.insert('businesses', business);
+
+  const agents = {
+    researcher: makeAgent({
+      name: 'Etsy Researcher',
+      slug: 'etsy-researcher',
+      business_id: business.id,
+      capabilities: ['etsy.research.opportunities'],
+    }),
+    designer: makeAgent({
+      name: 'Etsy Product Designer',
+      slug: 'etsy-designer',
+      business_id: business.id,
+      capabilities: ['etsy.product.create', 'etsy.design.concept'],
+    }),
+    artist: makeAgent({
+      name: 'Etsy Visual Artist',
+      slug: 'etsy-artist',
+      business_id: business.id,
+      agent_type: 'production',
+      capabilities: [
+        'etsy.artwork.generate',
+        'etsy.artwork.upscale',
+        'etsy.artwork.variants',
+        'etsy.mockups.generate',
+      ],
+    }),
+    listing: makeAgent({
+      name: 'Etsy Listing Agent',
+      slug: 'etsy-listing',
+      business_id: business.id,
+      capabilities: ['etsy.listing.write', 'etsy.package.zip'],
+    }),
+    // Global, matching the seeded SEO Agent — no channel or shop owns it.
+    seo: makeAgent({
+      name: 'SEO Agent',
+      slug: 'seo',
+      business_id: null,
+      capabilities: ['seo.keywords'],
+    }),
+  };
+  await store.insertMany('agents', Object.values(agents));
+
+  return { store, business, agents };
+}
+
+/**
  * The production workforce plus the Pokémon Researcher, on the same channel.
  *
  * Deliberately additive: the specialist is one more agent alongside the

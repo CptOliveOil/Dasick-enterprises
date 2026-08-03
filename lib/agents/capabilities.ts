@@ -17,10 +17,13 @@ import {
   youtubeScriptResponseSchema,
 } from '@/schemas/youtube';
 import {
+  etsyDesignConceptResponseSchema,
   etsyListingResponseSchema,
   etsyOpportunitiesResponseSchema,
+  etsyProductResponseSchema,
   keywordResponseSchema,
 } from '@/schemas/etsy';
+import { resolveOpportunity, resolveProduct } from '@/lib/production/etsy-resolve';
 import type {
   ApprovalKind,
   OpportunityBreakdown,
@@ -797,19 +800,136 @@ const etsyOpportunities: CapabilityHandler<
   },
 };
 
+const etsyProductCreate: CapabilityHandler<z.infer<typeof etsyProductResponseSchema>> = {
+  capability: 'etsy.product.create',
+  label: 'Frame the product',
+  schemaName: 'EtsyProduct',
+  schema: etsyProductResponseSchema,
+  async buildPrompt(ctx) {
+    const opportunity = await resolveOpportunity(ctx);
+    if (!opportunity) {
+      throw new Error(
+        'No opportunity was supplied to build a product from. Start this from an approved opportunity.',
+      );
+    }
+    return [
+      baseContext(ctx),
+      '',
+      `Turn this researched opportunity into a concrete product brief.`,
+      '',
+      `Product: ${opportunity.product}`,
+      `Target customer: ${opportunity.target_customer}`,
+      `Problem it solves: ${opportunity.problem}`,
+      `Pricing range researched: ${opportunity.pricing_range}`,
+      `Production difficulty: ${opportunity.production_difficulty}`,
+      '',
+      'Rules:',
+      '- Digital, instant-download only.',
+      '- `price` must be a single figure inside the researched pricing range, in pounds.',
+      '- `assets_required` and `production_checklist` are short, concrete deliverable names — not vague phases.',
+      feedbackNote(ctx),
+    ].join('\n');
+  },
+  async persist(ctx, data) {
+    const opportunity = await resolveOpportunity(ctx);
+    if (!opportunity) {
+      throw new Error('No opportunity was supplied to build a product from.');
+    }
+    const id = uuid();
+    await ctx.store.insert('etsy_products', {
+      id,
+      business_id: businessIdFor(ctx, 'this product'),
+      store_id: optionalId(opportunity.store_id),
+      opportunity_id: opportunity.id,
+      name: data.name,
+      description: data.description,
+      target_buyer: data.target_buyer,
+      category: data.category,
+      assets_required: data.assets_required,
+      production_checklist: data.production_checklist.map((item) => ({ item, done: false })),
+      price: data.price,
+      estimated_cost: 0,
+      status: 'creating',
+      design_concept: null,
+      artwork_asset_id: null,
+      upscaled_asset_id: null,
+      variant_asset_ids: {},
+      mockup_asset_ids: [],
+      package_asset_id: null,
+      is_demo: false,
+      created_at: now(),
+      updated_at: now(),
+    });
+    await ctx.store.update('etsy_opportunities', opportunity.id, { status: 'approved' });
+    return {
+      summary: `framed "${data.name}" — £${data.price.toFixed(2)}`,
+      output: { product_id: id, opportunity_id: opportunity.id },
+    };
+  },
+};
+
+const etsyDesignConcept: CapabilityHandler<z.infer<typeof etsyDesignConceptResponseSchema>> = {
+  capability: 'etsy.design.concept',
+  label: 'Design concept',
+  schemaName: 'EtsyDesignConcept',
+  schema: etsyDesignConceptResponseSchema,
+  async buildPrompt(ctx) {
+    const product = await resolveProduct(ctx);
+    if (!product) {
+      throw new Error('No product was supplied to design artwork for.');
+    }
+    return [
+      baseContext(ctx),
+      '',
+      `Design the artwork concept for: ${product.name}`,
+      product.description,
+      `Target buyer: ${product.target_buyer}`,
+      `Category: ${product.category}`,
+      '',
+      'Rules:',
+      '- This brief is fed directly to an image generator. Describe style, composition, colour and mood — never a real brand, character, franchise or living artist\'s name.',
+      '- `artwork_prompt` must stand alone: a complete image-generation prompt, ready to send as written.',
+      feedbackNote(ctx),
+    ].join('\n');
+  },
+  async persist(ctx, data) {
+    const product = await resolveProduct(ctx);
+    if (!product) {
+      throw new Error('No product was supplied to design artwork for.');
+    }
+    await ctx.store.update('etsy_products', product.id, {
+      design_concept: {
+        style: data.style,
+        palette: data.palette,
+        mood: data.mood,
+        primary_subject: data.primary_subject,
+        composition_notes: data.composition_notes,
+        artwork_prompt: data.artwork_prompt,
+      },
+      updated_at: now(),
+    });
+    return {
+      summary: `designed the concept — ${data.style}, ${data.mood}`,
+      output: { product_id: product.id, artwork_prompt: data.artwork_prompt },
+    };
+  },
+};
+
 const etsyListing: CapabilityHandler<z.infer<typeof etsyListingResponseSchema>> = {
   capability: 'etsy.listing.write',
   label: 'Draft listing',
   schemaName: 'EtsyListing',
   schema: etsyListingResponseSchema,
   async buildPrompt(ctx) {
-    const productId = optionalId(ctx.task.input.product_id);
-    const product = productId ? await ctx.store.get('etsy_products', productId) : null;
+    const product = await resolveProduct(ctx);
     return [
       baseContext(ctx),
       '',
       product
-        ? `Product: ${product.name}\n${product.description}\nTarget buyer: ${product.target_buyer}\nPrice: £${product.price}`
+        ? `Product: ${product.name}\n${product.description}\nTarget buyer: ${product.target_buyer}\nPrice: £${product.price}` +
+          (product.design_concept
+            ? `\nArtwork: ${product.design_concept.style}, ${product.design_concept.mood} — ${product.design_concept.primary_subject}`
+            : '')
         : `Draft a listing for: ${ctx.task.title}`,
       '',
       'Rules:',
@@ -821,7 +941,8 @@ const etsyListing: CapabilityHandler<z.infer<typeof etsyListingResponseSchema>> 
     ].join('\n');
   },
   async persist(ctx, data) {
-    const productId = optionalId(ctx.task.input.product_id);
+    const product = await resolveProduct(ctx);
+    const productId = product?.id ?? null;
     const id = uuid();
     await ctx.store.insert('etsy_listings', {
       id,
@@ -870,11 +991,16 @@ const seoKeywords: CapabilityHandler<z.infer<typeof keywordResponseSchema>> = {
   schemaName: 'Keywords',
   schema: keywordResponseSchema,
   async buildPrompt(ctx) {
-    const subject = String(ctx.task.input.subject ?? ctx.task.title);
+    // Falls back to the product this build is working on — the keyword step
+    // in the Etsy build has no `subject` seeded on it, only a product it
+    // depends on.
+    const product = ctx.task.input.subject ? null : await resolveProduct(ctx);
+    const subject = String(ctx.task.input.subject ?? product?.name ?? ctx.task.title);
     return [
       baseContext(ctx),
       '',
       `Research search keywords for: ${subject}`,
+      product ? `Category: ${product.category}\nTarget buyer: ${product.target_buyer}` : '',
       '',
       'Rules:',
       '- Favour long-tail phrases with clear buyer or viewer intent over broad head terms.',
@@ -919,6 +1045,8 @@ const HANDLERS: CapabilityHandler<never>[] = [
   youtubeProduction,
   youtubeAnalysis,
   etsyOpportunities,
+  etsyProductCreate,
+  etsyDesignConcept,
   etsyListing,
   seoKeywords,
 ] as unknown as CapabilityHandler<never>[];

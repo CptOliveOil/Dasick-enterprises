@@ -21,6 +21,8 @@ export const MEDIA_ASSET_TYPES = [
   'sound_effect',
   'final_video',
   'subtitle_file',
+  /** A packaged deliverable — currently only the Etsy product zip. */
+  'archive',
 ] as const;
 export type MediaAssetType = (typeof MEDIA_ASSET_TYPES)[number];
 
@@ -43,6 +45,8 @@ export interface MediaAsset {
   video_id: UUID | null;
   scene_id: UUID | null;
   task_id: UUID | null;
+  /** Set for Etsy artwork, mockups and packages. Null for anything YouTube. */
+  product_id: UUID | null;
   type: MediaAssetType;
   /** Which provider produced it. `ffmpeg` and `simulated` are both honest values. */
   provider: string;

@@ -1,5 +1,7 @@
+import { Download, Image as ImageIcon } from 'lucide-react';
 import { getWorkspace } from '@/lib/db/workspace';
 import { formatMoney, formatRelativeTime } from '@/lib/utils';
+import { playableUrl } from '@/lib/media/assets';
 import { Badge, DemoNotice, EmptyState, Panel, ProgressBar } from '@/components/ui';
 import { PageShell } from '@/components/layout/PageShell';
 import { ETSY_TABS } from '@/components/youtube/tabs';
@@ -26,6 +28,9 @@ export default async function EtsyProductsPage() {
     where: { business_id: business.id },
     orderBy: { column: 'updated_at', ascending: false },
   });
+
+  const assets = await store.list('media_assets', { where: { business_id: business.id } });
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
 
   return (
     <PageShell
@@ -98,6 +103,41 @@ export default async function EtsyProductsPage() {
                     ))}
                   </ul>
                 </div>
+
+                {(product.artwork_asset_id || product.package_asset_id) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--color-edge)] pt-3">
+                    {product.artwork_asset_id &&
+                      (() => {
+                        const artwork = assetById.get(product.artwork_asset_id!);
+                        const url = artwork ? playableUrl(artwork) : null;
+                        return url ? (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-edge)] px-3 py-1.5 text-[12px] text-[var(--color-ink-muted)] transition-colors hover:bg-white/[0.04] hover:text-[var(--color-ink)]"
+                          >
+                            <ImageIcon className="h-3.5 w-3.5" />
+                            View artwork
+                          </a>
+                        ) : null;
+                      })()}
+                    {product.package_asset_id &&
+                      (() => {
+                        const pack = assetById.get(product.package_asset_id!);
+                        const url = pack ? playableUrl(pack) : null;
+                        return url ? (
+                          <a
+                            href={`${url}?download=1`}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-edge)] px-3 py-1.5 text-[12px] text-[var(--color-ink-muted)] transition-colors hover:bg-white/[0.04] hover:text-[var(--color-ink)]"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download package
+                          </a>
+                        ) : null;
+                      })()}
+                  </div>
+                )}
               </Panel>
             );
           })}

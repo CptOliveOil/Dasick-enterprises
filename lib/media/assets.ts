@@ -12,6 +12,7 @@ export interface CreateAssetInput {
   videoId?: string | null;
   sceneId?: string | null;
   taskId?: string | null;
+  productId?: string | null;
   type: MediaAssetType;
   provider: string;
   providerAssetId?: string | null;
@@ -52,6 +53,7 @@ export async function createMediaAsset(
     video_id: input.videoId ?? null,
     scene_id: input.sceneId ?? null,
     task_id: input.taskId ?? null,
+    product_id: input.productId ?? null,
     type: input.type,
     provider: input.provider,
     provider_asset_id: input.providerAssetId ?? null,
@@ -100,6 +102,7 @@ export async function recordFailedAsset(
     video_id: input.videoId ?? null,
     scene_id: input.sceneId ?? null,
     task_id: input.taskId ?? null,
+    product_id: input.productId ?? null,
     type: input.type,
     provider: input.provider,
     provider_asset_id: null,

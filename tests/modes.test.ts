@@ -308,8 +308,12 @@ describe('the workflow library itself', () => {
     // itself to an implementation, which is the coupling this whole design
     // exists to prevent.
     const text = JSON.stringify(WORKFLOW_DEFINITIONS).toLowerCase();
-    for (const forbidden of ['elevenlabs', 'openai', 'flux', 'remotion', 'simulated', 'mock']) {
+    for (const forbidden of ['elevenlabs', 'openai', 'flux', 'remotion', 'simulated']) {
       expect(text, `workflows must not name ${forbidden}`).not.toContain(forbidden);
     }
+    // Word-boundary check for "mock": a mock *provider* must never be named,
+    // but "mockup" — a genuine Etsy listing image — is a different word and
+    // must not be flagged just for containing the same four letters.
+    expect(text, 'workflows must not name a mock provider').not.toMatch(/\bmock\b/);
   });
 });
