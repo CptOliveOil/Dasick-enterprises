@@ -12,6 +12,7 @@ import {
 import { fitToAudio, separate, toSrt, toVtt, validateCues } from '@/lib/media/subtitles';
 import { buildLicenceReport, licenceReportMarkdown } from '@/lib/production/licence-report';
 import { buildDossier } from '@/lib/approvals/dossier';
+import { resolveApproval } from '@/lib/workflows/approvals';
 import { RENDER_PRESETS } from '@/lib/integrations/providers/types';
 import { uuid } from '@/lib/ids';
 import { makeWorkspace, OWNER_ID } from './helpers';
@@ -534,6 +535,90 @@ describe('the studio final approval', () => {
     expect(dossier.summary.notice).toMatch(/no playable video file/i);
   });
 
+  it('refuses the approve decision itself when there is no playable video, not just the dossier text', async () => {
+    // The dossier's "cannot approve" consequence is only ever advisory to
+    // whatever renders it. The actual decision path — the one every caller
+    // goes through, UI or API — has to refuse it too.
+    const { store, approval } = await videoWorkspace({ playable: false });
+    await expect(
+      resolveApproval(store, OWNER_ID, approval.id, 'approve'),
+    ).rejects.toThrow(/no rendered video file/i);
+
+    const stillPending = await store.get('approvals', approval.id);
+    expect(stillPending!.status).toBe('pending');
+  });
+
+  it('allows the approve decision through when the render is locally stored with no public URL', async () => {
+    // The regression this guards: LocalMediaStorage never sets public_url, so
+    // a check against public_url alone would refuse every approval outside a
+    // Supabase Storage setup — including in Demo Mode, where nothing else is
+    // wrong with the video.
+    const { store, business } = await makeWorkspace();
+    const timestamp = new Date().toISOString();
+    const videoId = uuid();
+    const finalId = uuid();
+    await store.insert('media_assets', {
+      ...asset({
+        id: finalId,
+        business_id: business.id,
+        video_id: videoId,
+        type: 'final_video',
+        provider: 'ffmpeg',
+        mime_type: 'video/mp4',
+        duration: 720,
+        public_url: null,
+      }),
+    });
+    await store.insert('youtube_videos', {
+      id: videoId,
+      business_id: business.id,
+      channel_id: null,
+      idea_id: null,
+      script_id: null,
+      mission_id: null,
+      number: 1,
+      title: 'A locally rendered video',
+      status: 'ready',
+      stage: 'final_approval',
+      blocked_reason: null,
+      alternative_titles: [],
+      selected_thumbnail_id: null,
+      thumbnail_asset_id: null,
+      final_asset_id: finalId,
+      voiceover_id: null,
+      timeline_id: null,
+      metadata_id: null,
+      estimated_cost: 0,
+      actual_cost: 0,
+      published_external_id: null,
+      publish_at: null,
+      is_demo: false,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    const approval: Approval = {
+      id: uuid(),
+      owner_id: OWNER_ID,
+      business_id: business.id,
+      mission_id: null,
+      task_id: null,
+      agent_id: null,
+      kind: 'video',
+      title: 'Approve',
+      summary: '',
+      payload: { video_id: videoId },
+      status: 'pending',
+      feedback: null,
+      resolved_at: null,
+      is_demo: false,
+      created_at: timestamp,
+    };
+    await store.insert('approvals', approval);
+
+    const result = await resolveApproval(store, OWNER_ID, approval.id, 'approve');
+    expect(result.approval.status).toBe('approved');
+  });
+
   it('names an unresolved licence as a blocker in the summary', async () => {
     const { store, approval } = await videoWorkspace({ assets: [{ provider: 'unknown' }] });
     const dossier = await buildDossier(store, OWNER_ID, approval);
@@ -563,6 +648,81 @@ describe('the studio final approval', () => {
     expect(labels).toContain('openai');
     expect(labels).toContain('Rendering (local)');
     expect(labels).toContain('Total');
+  });
+
+  it('treats a locally-stored render with no public URL as playable through the authenticated route', async () => {
+    // LocalMediaStorage never sets public_url — that is by design, since the
+    // file is only reachable to someone signed in. A ready asset with a
+    // storage_path must still be playable, or Demo Mode and any deployment
+    // without Supabase Storage can never approve a video for publishing.
+    const { store, business } = await makeWorkspace();
+    const timestamp = new Date().toISOString();
+    const videoId = uuid();
+    const finalId = uuid();
+    await store.insert('media_assets', {
+      ...asset({
+        id: finalId,
+        business_id: business.id,
+        video_id: videoId,
+        type: 'final_video',
+        provider: 'ffmpeg',
+        mime_type: 'video/mp4',
+        duration: 720,
+        public_url: null,
+      }),
+    });
+    await store.insert('youtube_videos', {
+      id: videoId,
+      business_id: business.id,
+      channel_id: null,
+      idea_id: null,
+      script_id: null,
+      mission_id: null,
+      number: 1,
+      title: 'A locally rendered video',
+      status: 'ready',
+      stage: 'final_approval',
+      blocked_reason: null,
+      alternative_titles: [],
+      selected_thumbnail_id: null,
+      thumbnail_asset_id: null,
+      final_asset_id: finalId,
+      voiceover_id: null,
+      timeline_id: null,
+      metadata_id: null,
+      estimated_cost: 0,
+      actual_cost: 0,
+      published_external_id: null,
+      publish_at: null,
+      is_demo: false,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    const approval: Approval = {
+      id: uuid(),
+      owner_id: OWNER_ID,
+      business_id: business.id,
+      mission_id: null,
+      task_id: null,
+      agent_id: null,
+      kind: 'video',
+      title: 'Approve',
+      summary: '',
+      payload: { video_id: videoId },
+      status: 'pending',
+      feedback: null,
+      resolved_at: null,
+      is_demo: false,
+      created_at: timestamp,
+    };
+    await store.insert('approvals', approval);
+
+    const dossier = await buildDossier(store, OWNER_ID, approval);
+    const player = dossier.panels.find((panel) => panel.id === 'video') as {
+      items: { url: string | null }[];
+    };
+    expect(player.items[0]!.url).toBe(`/api/media/${finalId}`);
+    expect(dossier.actions.approve.consequence).not.toMatch(/cannot approve/i);
   });
 
   it('says plainly when the render came from the simulated provider', async () => {

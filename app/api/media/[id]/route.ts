@@ -33,16 +33,51 @@ export async function GET(
     const data = await getMediaStorage().read(asset.storage_path);
     const download = new URL(request.url).searchParams.get('download') === '1';
     const filename = `${asset.type}-${asset.id.slice(0, 8)}.${asset.storage_path.split('.').pop()}`;
+    const simulatedHeader: Record<string, string> = asset.simulated
+      ? { 'X-Command-Centre-Simulated': 'true' }
+      : {};
+
+    // Video and audio need seeking to be watchable at all — a 12-minute
+    // render served with no Range support forces a full download before the
+    // first frame, and some browsers refuse to scrub it afterwards.
+    const range = request.headers.get('range');
+    if (range) {
+      const match = /bytes=(\d*)-(\d*)/.exec(range);
+      const start = match?.[1] ? Number(match[1]) : 0;
+      const end = match?.[2] ? Number(match[2]) : data.byteLength - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= data.byteLength) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${data.byteLength}` },
+        });
+      }
+      const clampedEnd = Math.min(end, data.byteLength - 1);
+      const chunk = data.subarray(start, clampedEnd + 1);
+      return new NextResponse(new Uint8Array(chunk), {
+        status: 206,
+        headers: {
+          'Content-Type': asset.mime_type,
+          'Content-Length': String(chunk.byteLength),
+          'Content-Range': `bytes ${start}-${clampedEnd}/${data.byteLength}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=3600',
+          ...simulatedHeader,
+        },
+      });
+    }
 
     return new NextResponse(new Uint8Array(data), {
       headers: {
         'Content-Type': asset.mime_type,
         'Content-Length': String(data.byteLength),
+        'Accept-Ranges': 'bytes',
         'Cache-Control': 'private, max-age=3600',
-        ...(download ? { 'Content-Disposition': `attachment; filename="${filename}"` } : {}),
+        ...(download
+          ? ({ 'Content-Disposition': `attachment; filename="${filename}"` } as Record<string, string>)
+          : {}),
         // Makes it impossible to mistake a Demo placeholder for real media,
         // even when the file is opened outside the application.
-        ...(asset.simulated ? { 'X-Command-Centre-Simulated': 'true' } : {}),
+        ...simulatedHeader,
       },
     });
   } catch (error) {

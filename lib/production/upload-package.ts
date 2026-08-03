@@ -1,5 +1,6 @@
 import 'server-only';
 import { describeMode } from '@/lib/modes';
+import { playableUrl } from '@/lib/media/assets';
 import type { DataStore } from '@/lib/db/tables';
 import type { YoutubeVideo } from '@/types/domain';
 
@@ -92,7 +93,7 @@ export async function buildUploadPackage(
     {
       name: 'video.mp4',
       kind: 'video',
-      url: finalAsset?.public_url ?? null,
+      url: playableUrl(finalAsset),
       note: finalAsset
         ? finalAsset.provider === 'simulated'
           ? 'Rendered by the simulated provider. It is a placeholder and must not be published.'
@@ -102,7 +103,7 @@ export async function buildUploadPackage(
     {
       name: 'thumbnail.png',
       kind: 'image',
-      url: thumbnailAsset?.public_url ?? null,
+      url: playableUrl(thumbnailAsset),
       note: thumbnailAsset ? null : 'No thumbnail has been selected.',
     },
     {

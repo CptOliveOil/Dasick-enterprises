@@ -1,6 +1,7 @@
 import 'server-only';
 import { buildLicenceReport } from '@/lib/production/licence-report';
 import { isSimulatedProvider } from '@/lib/production/provenance';
+import { playableUrl } from '@/lib/media/assets';
 import { formatDuration } from './script';
 import { itemFromRecord } from '@/lib/approvals/review';
 import type { DataStore } from '@/lib/db/tables';
@@ -64,7 +65,8 @@ export const studioDossier: DossierBuilder = {
 
     const licence = await buildLicenceReport(store, video);
     const costs = await costBreakdown(store, video);
-    const playable = Boolean(finalAsset?.public_url);
+    const finalUrl = playableUrl(finalAsset);
+    const playable = Boolean(finalUrl);
 
     const panels: Panel[] = [];
 
@@ -75,8 +77,8 @@ export const studioDossier: DossierBuilder = {
         id: finalAsset.id,
         label: 'The finished video',
         mediaKind: 'video',
-        url: finalAsset.public_url,
-        note: !finalAsset.public_url
+        url: finalUrl,
+        note: !finalUrl
           ? `The render is recorded as ${finalAsset.status} but no playable file is reachable. You cannot approve publishing until you can watch it.`
           : isSimulatedProvider(finalAsset.provider)
             ? 'Rendered by the simulated provider. This is a placeholder and must not be published.'
@@ -94,7 +96,7 @@ export const studioDossier: DossierBuilder = {
         id: thumbnail.id,
         label: 'Selected thumbnail',
         mediaKind: 'image',
-        url: thumbnail.public_url,
+        url: playableUrl(thumbnail),
         note: isSimulatedProvider(thumbnail.provider)
           ? 'Simulated placeholder, not a real thumbnail.'
           : null,
@@ -134,7 +136,7 @@ export const studioDossier: DossierBuilder = {
           id: asset.id,
           label: `Candidate ${asset.id.slice(0, 8)}`,
           mediaKind: 'image' as const,
-          url: asset.public_url,
+          url: playableUrl(asset),
           note: null,
           fields: [{ label: 'Provider', value: asset.provider }],
         })),

@@ -6,6 +6,7 @@ import { recomputeMission, releaseUnblockedTasks } from './engine';
 import { scheduleRework } from '@/lib/approvals/rework';
 import { resolveMissionScript } from './script-resolution';
 import { recordMissionOutcome } from '@/lib/memory/business';
+import { playableUrl } from '@/lib/media/assets';
 
 export type ApprovalDecision = 'approve' | 'reject' | 'request_changes';
 
@@ -64,6 +65,9 @@ export async function resolveApproval(
 
     const unsettled = await unresolvedClaims(store, existing);
     if (unsettled) throw new ApprovalRefused(unsettled);
+
+    const unwatchable = await unplayableVideoBlock(store, existing);
+    if (unwatchable) throw new ApprovalRefused(unwatchable);
   }
 
   const timestamp = new Date().toISOString();
@@ -235,6 +239,32 @@ async function unresolvedClaims(
   if (outstanding.length === 0) return null;
 
   return `${outstanding.length} claim${outstanding.length === 1 ? '' : 's'} still ${outstanding.length === 1 ? 'has' : 'have'} no source. Settle each one — add a reference, ask the Source Checker to research it, edit or remove the claim, or override it deliberately — before closing this.`;
+}
+
+/**
+ * Refuses to approve a video that cannot actually be watched.
+ *
+ * The studio dossier already explains this in its consequence text, but that
+ * text is only ever advisory to whatever is rendering it — the approve
+ * button, the approvals list, a direct API call. The rule from the operator
+ * ("never approve work you cannot fully inspect") has to be enforced at the
+ * one place every path through, not hoped for in the UI that happens to be
+ * open.
+ */
+async function unplayableVideoBlock(store: DataStore, approval: Approval): Promise<string | null> {
+  if (approval.kind !== 'video') return null;
+  const videoId = typeof approval.payload.video_id === 'string' ? approval.payload.video_id : null;
+  if (!videoId) return null;
+
+  const video = await store.get('youtube_videos', videoId).catch(() => null);
+  if (!video?.final_asset_id) {
+    return 'There is no rendered video file. Approving publishing is not possible until one exists.';
+  }
+  const finalAsset = await store.get('media_assets', video.final_asset_id).catch(() => null);
+  if (!playableUrl(finalAsset)) {
+    return 'There is no playable video file. Approving a video you cannot watch is not a decision — watch it first.';
+  }
+  return null;
 }
 
 /**

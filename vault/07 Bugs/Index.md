@@ -31,3 +31,5 @@ SORT resolved DESC
 | Tests only exercising the well-formed path | [[Step Key Collision]] |
 | A type disagreeing with its schema | [[Blank UUID In Research]] |
 | Symptom appearing steps away from the cause | [[Script Not Found In AI Planned Missions]], [[Zoompan Frame Explosion]] |
+| A narrow field's meaning assumed to answer a broader question | [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] |
+| Advisory UI text mistaken for enforcement | [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] |

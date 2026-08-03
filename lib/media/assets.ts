@@ -130,6 +130,26 @@ export async function assetLocalPath(asset: MediaAsset): Promise<string> {
   return getMediaStorage().localPath(asset.storage_path);
 }
 
+/**
+ * Where the UI can actually load this asset from, or null if it cannot.
+ *
+ * `public_url` stays honest about whether a directly-reachable URL exists —
+ * the local storage driver never sets one, on purpose, because a link that
+ * only works for someone already signed in is not a public URL. But it *is*
+ * playable, through the authenticated `/api/media/[id]` route, which is the
+ * only way anything renders in Demo Mode or a Supabase-less setup. Screens
+ * that decide "is there something to watch" must ask this, not `public_url`
+ * directly, or every non-Supabase deployment looks permanently unplayable.
+ */
+export function playableUrl(
+  asset: Pick<MediaAsset, 'id' | 'status' | 'storage_path' | 'public_url'> | null | undefined,
+): string | null {
+  if (!asset) return null;
+  if (asset.public_url) return asset.public_url;
+  if (asset.status === 'ready' && asset.storage_path) return `/api/media/${asset.id}`;
+  return null;
+}
+
 export function formatBytes(bytes: number | null): string {
   if (bytes === null) return 'unknown size';
   if (bytes < 1024) return `${bytes} B`;

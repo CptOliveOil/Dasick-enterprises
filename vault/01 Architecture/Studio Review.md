@@ -8,6 +8,7 @@ related:
   - [[Approval Dossier]]
   - [[Copyright Review]]
   - [[Upload Package]]
+  - [[Storage]]
 tags:
   - architecture
 ---
@@ -22,7 +23,9 @@ tags:
 ## Responsibilities
 
 - Assemble the studio dossier for a `video` approval
-- Disable approval when there is no playable file
+- Refuse approval when there is no playable file — enforced in
+  `resolveApproval` (`lib/workflows/approvals.ts`), not only shown as text in
+  the dossier
 - Offer the upload package and licence report as downloads
 
 ## Inputs
@@ -41,7 +44,7 @@ tags:
 
 ## Failure modes
 
-- **Approving without watching** → structurally prevented; approve is disabled without a playable file.
+- **Approving without watching** → structurally prevented; `resolveApproval` refuses an `approve` decision on a `video` kind when [[Storage]]'s `playableUrl()` returns null. See [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] — the field this used to check (`public_url`) is only ever set by Supabase Storage, so it under-counted "playable" until this was fixed.
 
 ## Future improvements
 
@@ -53,3 +56,4 @@ tags:
 - [[Approval Dossier]]
 - [[Copyright Review]]
 - [[Upload Package]]
+- [[Storage]]

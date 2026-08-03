@@ -1,5 +1,6 @@
 import 'server-only';
 import { itemFromRecord, readable } from '@/lib/approvals/review';
+import { playableUrl } from '@/lib/media/assets';
 import { formatDuration } from './script';
 import type { DataStore } from '@/lib/db/tables';
 import type { DossierBuilder } from './registry';
@@ -157,13 +158,14 @@ async function mediaItem(
       ? 'audio'
       : 'image';
 
+  const url = playableUrl(asset);
   return {
     id: asset.id,
     label,
     mediaKind,
-    url: asset.public_url,
+    url,
     note:
-      asset.public_url === null
+      url === null
         ? `This asset is recorded as ${asset.status} and has no reachable file yet. There is nothing to play — do not treat its absence as a rendering that failed to load.`
         : asset.provider === 'simulated'
           ? 'Produced by the simulated provider. It is a placeholder, not real output.'
