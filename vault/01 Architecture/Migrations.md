@@ -54,6 +54,7 @@ tags:
 | `0007_business_memory.sql` | `mission_outcomes` |
 | `0008_studio.sql` | `youtube_captions`, `youtube_copyright_reviews` |
 | `0009_etsy_production.sql` | `media_assets.product_id` (+ `archive` type), `etsy_products` design/artwork/mockup/package columns |
+| `0010_mission_hierarchy.sql` | `missions.parent_mission_id` — parent/child missions for Operational Readiness |
 
 ## Future improvements
 

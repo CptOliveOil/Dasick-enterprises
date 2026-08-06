@@ -5,7 +5,9 @@ import { providerIsLive, resolveProvider } from '@/lib/integrations/ai';
 import { managerPlanSchema, type ManagerPlan } from '@/schemas/manager';
 import type { Agent, Business, CommandMessage, Mission, Task } from '@/types/domain';
 import { listCapabilities } from './capabilities';
+import { businessCapabilitiesWithoutBusiness } from './scope';
 import { createMission, type PlannedStep } from '@/lib/workflows/engine';
+import { startOperationalReadiness } from '@/lib/workflows/readiness';
 
 export interface CommandResult {
   /** The first mission created. Kept for callers that expect a single one. */
@@ -48,6 +50,14 @@ export async function handleCommand(
     created_at: timestamp,
   };
   await store.insert('command_messages', userMessage);
+
+  // Operational Readiness is not "a mission" in the ordinary sense — it is a
+  // system-level check that necessarily needs business-scoped work done in
+  // every business' own context, so it is handled entirely separately from
+  // the single-mission path below, which never fans out.
+  if (OPERATIONAL_READINESS.test(trimmed)) {
+    return startOperationalReadinessCommand(store, ownerId, userMessage);
+  }
 
   const businesses = await store.list('businesses', { where: { owner_id: ownerId } });
   const agents = await store.list('agents', { where: { owner_id: ownerId } });
@@ -103,6 +113,30 @@ export async function handleCommand(
     input: step.input as Record<string, unknown>,
   }));
 
+  // The Manager must know a capability's scope before committing to a plan —
+  // not discover it three layers down, inside that capability's own
+  // persist(), as an opaque `MissingRelationship`. `createMission` enforces
+  // this too (belt and suspenders, the same pattern as `assertStorableRow`
+  // guarding both the producer and the boundary), but catching it here means
+  // a friendly, specific reply instead of a thrown error reaching the caller.
+  const missingBusiness = businessCapabilitiesWithoutBusiness(
+    steps.map((s) => s.capability),
+    business?.id ?? null,
+  );
+  if (missingBusiness.length > 0) {
+    const reply = `${missingBusiness.join(', ')} ${missingBusiness.length === 1 ? 'needs' : 'need'} a business, and I could not tell which one from that instruction. Name the business, or ask for "operational readiness" if you mean every business at once.`;
+    const managerMessage = await appendManagerMessage(store, ownerId, reply, null, {});
+    return {
+      mission: null,
+      missions: [],
+      tasks: [],
+      reply,
+      plan: null,
+      messages: [userMessage, managerMessage],
+      planned_locally: plannedLocally,
+    };
+  }
+
   // Bulk requests become separate missions, so each video has its own cost,
   // approvals, assets and failure modes.
   const repeat = Math.max(1, Math.min(finalPlan.repeat ?? 1, 10));
@@ -148,6 +182,44 @@ export async function handleCommand(
     plan: finalPlan,
     messages: [{ ...userMessage, mission_id: mission.id }, managerMessage],
     planned_locally: plannedLocally,
+  };
+}
+
+/**
+ * Deliberately specific, the same way `ISLAMIC_SUBJECT` and `POKEMON_SUBJECT`
+ * are below: "is everything okay" or "how are we doing" should reach the
+ * ordinary briefing/recommendations capabilities, not fan out into a mission
+ * per business every time the operator asks a general question.
+ */
+const OPERATIONAL_READINESS =
+  /\b(operational readiness|readiness check|readiness report|system health check|(check|verify)\s+(if\s+)?(everything|the system)\s+is\s+ready|are\s+we\s+ready\s+to\s+operate)\b/i;
+
+async function startOperationalReadinessCommand(
+  store: DataStore,
+  ownerId: string,
+  userMessage: CommandMessage,
+): Promise<CommandResult> {
+  const { parent, children } = await startOperationalReadiness(store, ownerId);
+  await store.update('command_messages', userMessage.id, { mission_id: parent.id });
+
+  const areas = children.map((c) => c.title).join(', ');
+  const reply =
+    children.length > 1
+      ? `Started Operational Readiness. Checking ${areas}, each in its own mission so nothing leaks between them. I will report back once every check has finished.`
+      : `Started Operational Readiness. Checking ${areas || 'shared infrastructure'} — there are no other businesses configured yet.`;
+
+  const managerMessage = await appendManagerMessage(store, ownerId, reply, parent.id, {
+    readiness: children.map((c) => c.id),
+  });
+
+  return {
+    mission: parent,
+    missions: [parent, ...children],
+    tasks: [],
+    reply,
+    plan: null,
+    messages: [{ ...userMessage, mission_id: parent.id }, managerMessage],
+    planned_locally: true,
   };
 }
 

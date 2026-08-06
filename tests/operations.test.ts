@@ -139,6 +139,7 @@ describe('needs-you aggregation', () => {
       id: uuid(),
       owner_id: OWNER_ID,
       business_id: null,
+      parent_mission_id: null,
       number: 1,
       title: 'Done',
       objective: '',

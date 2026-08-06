@@ -39,3 +39,4 @@ Kept because the pattern matters more than the fix.
 - Renderer producing nothing → [[Zoompan Frame Explosion]]
 - No video could be approved for publishing outside Supabase Storage → [[Approving A Video Was Permanently Disabled Outside Supabase Storage]]
 - The Etsy pipeline covered 3 of 11 required product outputs, with no code turning an approved opportunity into a product → [[ADR-015 Etsy Production Reuses The YouTube Pattern]], [[Etsy Product Build]]
+- A system-level mission (Operational Readiness) had no way to run business-scoped work without guessing a business or failing three layers down → [[Operational Readiness Fans Out Instead Of Guessing A Business]], [[ADR-016 Fan Out Child Missions Rather Than Multi-Business Steps]]

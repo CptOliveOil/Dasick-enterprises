@@ -623,6 +623,46 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     created_at: timestamp,
     updated_at: timestamp,
   },
+  {
+    id: stableId('workflow:business_readiness'),
+    owner_id: null,
+    business_id: null,
+    key: 'business_readiness',
+    name: 'Business Readiness',
+    description:
+      'One business\' share of an Operational Readiness run: agents assigned, its core setup present, its budget configured.',
+    steps: [
+      {
+        key: 'check',
+        title: 'Check readiness',
+        capability: 'business.readiness.check',
+        depends_on: [],
+        requires_approval: false,
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  {
+    id: stableId('workflow:system_readiness'),
+    owner_id: null,
+    business_id: null,
+    key: 'system_readiness',
+    name: 'Shared Infrastructure Audit',
+    description:
+      'The system-scoped share of an Operational Readiness run: mode, provider connectivity, and whether any business exists at all.',
+    steps: [
+      {
+        key: 'audit',
+        title: 'Audit shared infrastructure',
+        capability: 'system.readiness.audit',
+        depends_on: [],
+        requires_approval: false,
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
 ];
 
 export function findWorkflow(key: string): WorkflowDefinition | undefined {

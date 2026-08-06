@@ -294,6 +294,65 @@ export async function makeEtsyWorkspace() {
 }
 
 /**
+ * Two businesses (a YouTube channel and an Etsy shop), each with one agent of
+ * its own, plus a global Readiness Auditor — enough to exercise Operational
+ * Readiness's fan-out: one child mission per business, run in that
+ * business' own context, with nothing shared between them but the parent.
+ */
+export async function makeReadinessWorkspace() {
+  const store = new MemoryStore();
+  await store.insertMany('workflow_definitions', WORKFLOW_DEFINITIONS);
+
+  const youtube = makeBusiness({ name: 'Test YouTube', slug: 'youtube', kind: 'youtube' });
+  const etsy = makeBusiness({ name: 'Test Etsy Shop', slug: 'etsy', kind: 'etsy' });
+  await store.insertMany('businesses', [youtube, etsy]);
+
+  const auditor = makeAgent({
+    name: 'Readiness Auditor',
+    slug: 'readiness-auditor',
+    business_id: null,
+    capabilities: ['system.readiness.audit', 'business.readiness.check'],
+  });
+  const youtubeAgent = makeAgent({
+    name: 'YouTube Researcher',
+    slug: 'youtube-researcher',
+    business_id: youtube.id,
+    capabilities: ['youtube.research.ideas'],
+  });
+  const etsyAgent = makeAgent({
+    name: 'Etsy Researcher',
+    slug: 'etsy-researcher',
+    business_id: etsy.id,
+    capabilities: ['etsy.research.opportunities'],
+  });
+  await store.insertMany('agents', [auditor, youtubeAgent, etsyAgent]);
+
+  await store.insert('youtube_channels', {
+    id: uuid(),
+    business_id: youtube.id,
+    name: 'Test Channel',
+    handle: '@test',
+    niche: 'History documentaries',
+    target_audience: 'Adults 25–54',
+    external_id: null,
+    is_demo: false,
+    created_at: new Date().toISOString(),
+  });
+  await store.insert('etsy_stores', {
+    id: uuid(),
+    business_id: etsy.id,
+    name: 'Test Shop',
+    url: 'https://www.etsy.com/shop/test',
+    niche: 'Printables',
+    external_id: null,
+    is_demo: false,
+    created_at: new Date().toISOString(),
+  });
+
+  return { store, youtube, etsy, auditor };
+}
+
+/**
  * The production workforce plus the Pokémon Researcher, on the same channel.
  *
  * Deliberately additive: the specialist is one more agent alongside the

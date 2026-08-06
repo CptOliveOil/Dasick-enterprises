@@ -8,6 +8,7 @@ related:
   - [[Agent Engine]]
   - [[03 Agents/Index|Agents]]
   - [[Workflow Engine]]
+  - [[Capability Scope]]
 tags:
   - architecture
 ---
@@ -15,7 +16,7 @@ tags:
 # Capability Registry
 
 > [!info] Purpose
-> A capability is the smallest unit of work an agent can do. Handlers declare `ai` mode (build a prompt, validate, persist) or `provider` mode (call a provider interface directly).
+> A capability is the smallest unit of work an agent can do. Handlers declare `ai` mode (build a prompt, validate, persist) or `provider` mode (call a provider interface directly). What it *needs* before it can run — a whole workspace, one business, or a prior step's state — is [[Capability Scope]], looked up separately rather than declared on the handler itself.
 
 **Code** — `lib/agents/capabilities.ts`, `lib/agents/production/*`
 
@@ -51,3 +52,4 @@ tags:
 - [[Agent Engine]]
 - [[03 Agents/Index|Agents]]
 - [[Workflow Engine]]
+- [[Capability Scope]]

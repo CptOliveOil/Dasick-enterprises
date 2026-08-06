@@ -80,6 +80,7 @@ async function scriptWorkspace(options: {
     id: uuid(),
     owner_id: OWNER_ID,
     business_id: business.id,
+    parent_mission_id: null,
     number: 3,
     title: 'The Porygon documentary',
     objective: 'Produce one full video',

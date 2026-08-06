@@ -230,6 +230,12 @@ export interface Mission {
   id: UUID;
   owner_id: UUID;
   business_id: UUID | null;
+  /**
+   * Set only for a mission created as one business' (or shared
+   * infrastructure's) share of a system-level mission — e.g. one child of an
+   * Operational Readiness run. Null for an ordinary, standalone mission.
+   */
+  parent_mission_id: UUID | null;
   /** Human-facing sequential number, e.g. 8 renders as "MISSION #008". */
   number: number;
   title: string;
@@ -491,6 +497,8 @@ export interface CommandMessage {
     /** A structured briefing or recommendation set, when the Manager produced one. */
     briefing?: Record<string, unknown>;
     recommendations?: Record<string, unknown>;
+    /** The child mission ids an Operational Readiness message reports on or created. */
+    readiness?: UUID[];
   };
   created_at: Timestamp;
 }

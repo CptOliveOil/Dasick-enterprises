@@ -2,6 +2,7 @@ import 'server-only';
 import { uuid } from '@/lib/ids';
 import type { DataStore } from '@/lib/db/tables';
 import { logActivity } from '@/lib/agents/activity';
+import { businessCapabilitiesWithoutBusiness, ScopeViolation } from '@/lib/agents/scope';
 import type {
   Mission,
   MissionPriority,
@@ -41,6 +42,15 @@ export interface CreateMissionInput {
   targetDate?: string | null;
   /** HH:MM alongside `targetDate`. */
   targetTime?: string | null;
+  /** Set when this mission is one business' (or shared infrastructure's) share of a system mission. */
+  parentMissionId?: string | null;
+  /**
+   * Permits a mission with no tasks of its own — only for a pure orchestrator
+   * whose status is entirely derived from its children (see
+   * `recomputeMission`). Every ordinary mission still needs at least one step;
+   * this does not relax that for anything but an explicit opt-in.
+   */
+  allowNoSteps?: boolean;
 }
 
 export interface CreatedMission {
@@ -156,8 +166,22 @@ export async function createMission(
         ? stepsFromWorkflow(workflow.steps)
         : [];
 
-  if (planned.length === 0) {
+  if (planned.length === 0 && !input.allowNoSteps) {
     throw new Error('A mission needs at least one step.');
+  }
+
+  // The planner-level fix for the bug this exists to prevent: a business
+  // capability with no business behind it used to fail three layers down,
+  // inside that capability's own persist(), as an opaque `MissingRelationship`.
+  // Catching it here means it never gets that far — the mission is never
+  // created, and every offending step is named at once rather than discovered
+  // one task-failure at a time.
+  const missingBusiness = businessCapabilitiesWithoutBusiness(
+    planned.map((step) => step.capability),
+    input.businessId,
+  );
+  if (missingBusiness.length > 0) {
+    throw new ScopeViolation(missingBusiness, `Cannot create mission "${input.title}"`);
   }
 
   const timestamp = new Date().toISOString();
@@ -165,6 +189,7 @@ export async function createMission(
     id: uuid(),
     owner_id: input.ownerId,
     business_id: input.businessId,
+    parent_mission_id: input.parentMissionId ?? null,
     number: await nextMissionNumber(store, input.ownerId),
     title: input.title,
     objective: input.objective,
@@ -363,6 +388,37 @@ export function deriveMissionState(tasks: Task[]): {
   return { status, progress: Math.min(100, Math.max(0, progress)) };
 }
 
+/**
+ * Status and progress for a pure orchestrator mission — one with no tasks of
+ * its own, whose entire job is waiting on its children (e.g. Operational
+ * Readiness waiting on one readiness mission per business).
+ *
+ * Deliberately mirrors `deriveMissionState`'s vocabulary and priority order —
+ * a mission is a mission whether its units of work are tasks or child
+ * missions — a failed child fails the parent, and the parent is not
+ * `completed` until every child has genuinely finished.
+ */
+export function deriveParentMissionState(children: Mission[]): {
+  status: MissionStatus;
+  progress: number;
+} {
+  if (children.length === 0) return { status: 'planning', progress: 0 };
+
+  const progress = Math.round(
+    children.reduce((sum, c) => sum + c.progress, 0) / children.length,
+  );
+
+  let status: MissionStatus;
+  if (children.some((c) => c.status === 'failed')) status = 'failed';
+  else if (children.every((c) => c.status === 'completed' || c.status === 'cancelled')) {
+    status = children.some((c) => c.status === 'completed') ? 'completed' : 'cancelled';
+  } else if (children.some((c) => c.status === 'needs_approval')) status = 'needs_approval';
+  else if (children.some((c) => c.status === 'running' || c.status === 'planning')) status = 'running';
+  else status = 'waiting';
+
+  return { status, progress: Math.min(100, Math.max(0, progress)) };
+}
+
 export async function recomputeMission(
   store: DataStore,
   missionId: string,
@@ -370,7 +426,17 @@ export async function recomputeMission(
   const mission = await store.get('missions', missionId);
   if (!mission) return null;
   const tasks = await store.list('tasks', { where: { mission_id: missionId } });
-  const { status, progress } = deriveMissionState(tasks);
+
+  // A mission with no tasks of its own is either brand new or a pure
+  // orchestrator — the two are told apart by whether it has children.
+  const children =
+    tasks.length === 0
+      ? await store.list('missions', { where: { parent_mission_id: missionId } })
+      : [];
+  const { status, progress } =
+    tasks.length === 0 && children.length > 0
+      ? deriveParentMissionState(children)
+      : deriveMissionState(tasks);
   const timestamp = new Date().toISOString();
 
   const updated = await store.update('missions', missionId, {
@@ -394,5 +460,29 @@ export async function recomputeMission(
       message: `Mission #${String(mission.number).padStart(3, '0')} completed — ${mission.title}`,
     });
   }
+
+  // A system mission whose children just finished gets its report built once,
+  // right here — the one place every child's completion, in any order,
+  // through any path (a direct run or a retry), ends up. Dynamically
+  // imported so this generic engine file does not depend on
+  // readiness-specific business logic, the same way `lib/workflows/approvals.ts`
+  // reaches into `lib/islamic/resolve.ts` without a static import cycle.
+  if (
+    (status === 'completed' || status === 'failed') &&
+    mission.status !== status &&
+    children.length > 0 &&
+    mission.context.kind === 'operational_readiness'
+  ) {
+    const { finalizeReadinessReport } = await import('./readiness');
+    await finalizeReadinessReport(store, updated).catch(() => null);
+  }
+
+  // Propagate up: a child's own status just changed, so whatever it belongs
+  // to may need recomputing too. Recursive rather than one level deep, so a
+  // deeper hierarchy would still work, though nothing builds one today.
+  if (mission.parent_mission_id) {
+    await recomputeMission(store, mission.parent_mission_id);
+  }
+
   return updated;
 }

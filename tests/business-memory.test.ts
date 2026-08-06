@@ -41,6 +41,7 @@ async function completedMission(
     id: uuid(),
     owner_id: OWNER_ID,
     business_id: businessId,
+    parent_mission_id: null,
     number: 1,
     title: 'The episode that vanished',
     objective: 'Produce one full video',

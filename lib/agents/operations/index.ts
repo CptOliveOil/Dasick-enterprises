@@ -1,8 +1,19 @@
 import { uuid } from '@/lib/ids';
-import type { CapabilityHandler } from '@/lib/agents/capabilities';
+import type { CapabilityHandler, PersistResult } from '@/lib/agents/capabilities';
 import type { RunContext } from '@/lib/agents/context';
 import { buildDigest } from '@/lib/operations/digest';
 import { dailyBriefingSchema, recommendationsSchema } from '@/schemas/manager-ops';
+import { describeMode } from '@/lib/modes';
+import { getBudget } from '@/lib/finance/budgets';
+import {
+  getAnalyticsProvider,
+  getImageProvider,
+  getMusicProvider,
+  getStockProvider,
+  getSubtitleProvider,
+  getVideoProvider,
+  getVoiceProvider,
+} from '@/lib/integrations/providers/registry';
 
 const now = () => new Date().toISOString();
 
@@ -168,7 +179,138 @@ export const managerRecommendations: CapabilityHandler<
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* system.readiness.audit                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The "shared infrastructure audit" child of an Operational Readiness run.
+ *
+ * Deliberately system-scoped and provider-mode: no business, no AI call, no
+ * cost — just what is actually configured, read straight from the mode
+ * system and the provider registry, the same sources their own status pages
+ * use. Nothing here is estimated or inferred.
+ */
+export const systemReadinessAudit: CapabilityHandler = {
+  capability: 'system.readiness.audit',
+  label: 'Shared infrastructure audit',
+  mode: 'provider',
+  schemaName: 'SystemReadiness',
+  schema: undefined as never,
+
+  async run(ctx): Promise<PersistResult> {
+    const mode = describeMode();
+    const businesses = await ctx.store.list('businesses', { where: { owner_id: ctx.ownerId } });
+    const providers = [
+      { name: 'Voice', provider: getVoiceProvider() },
+      { name: 'Image', provider: getImageProvider() },
+      { name: 'Video', provider: getVideoProvider() },
+      { name: 'Stock media', provider: getStockProvider() },
+      { name: 'Music', provider: getMusicProvider() },
+      { name: 'Subtitles', provider: getSubtitleProvider() },
+      { name: 'Analytics', provider: getAnalyticsProvider() },
+    ];
+    const disconnected = providers.filter((p) => !p.provider.isConnected());
+
+    const findings: string[] = [];
+    if (businesses.length === 0) {
+      findings.push('No businesses are configured yet.');
+    }
+    // Only a real problem in Production Mode — Demo and Development are
+    // allowed to run without every provider connected.
+    if (mode.mode === 'production' && disconnected.length > 0) {
+      findings.push(
+        `${disconnected.length} of ${providers.length} providers are not connected: ${disconnected.map((p) => p.name).join(', ')}.`,
+      );
+    }
+
+    return {
+      summary:
+        findings.length === 0
+          ? `shared infrastructure is ready (${mode.mode} mode, ${businesses.length} business${businesses.length === 1 ? '' : 'es'})`
+          : `${findings.length} finding${findings.length === 1 ? '' : 's'} in shared infrastructure`,
+      output: {
+        mode: mode.mode,
+        businesses: businesses.length,
+        providers: providers.map((p) => ({ name: p.name, connected: p.provider.isConnected() })),
+        findings,
+        verdict: findings.length === 0 ? 'ready' : 'attention',
+      },
+    };
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* business.readiness.check                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One business' share of an Operational Readiness run.
+ *
+ * Also system-scoped in spirit but `business`-scoped in fact — it is exactly
+ * the kind of capability the readiness fan-out exists for: it needs to run
+ * once per business, in that business' own context, never across all of them
+ * from one task.
+ */
+export const businessReadinessCheck: CapabilityHandler = {
+  capability: 'business.readiness.check',
+  label: 'Business readiness check',
+  mode: 'provider',
+  schemaName: 'BusinessReadiness',
+  schema: undefined as never,
+
+  async run(ctx): Promise<PersistResult> {
+    const business = ctx.business;
+    if (!business) {
+      return {
+        summary: 'is blocked — no business to check',
+        output: { blocked: true },
+        blocked: 'No business was attached to this readiness check.',
+      };
+    }
+
+    const findings: string[] = [];
+    const agents = await ctx.store.list('agents', { where: { business_id: business.id } });
+    const active = agents.filter(
+      (a) => a.status !== 'disabled' && a.status !== 'offline' && !a.archived_at,
+    );
+    if (active.length === 0) {
+      findings.push('No active agents are assigned to this business.');
+    }
+
+    if (business.kind === 'youtube') {
+      const channels = await ctx.store.list('youtube_channels', { where: { business_id: business.id } });
+      if (channels.length === 0) findings.push('No YouTube channel is configured for this business.');
+    }
+    if (business.kind === 'etsy') {
+      const stores = await ctx.store.list('etsy_stores', { where: { business_id: business.id } });
+      if (stores.length === 0) findings.push('No Etsy store is configured for this business.');
+    }
+
+    const budget = await getBudget(ctx.store, ctx.ownerId, business.id);
+
+    return {
+      summary:
+        findings.length === 0
+          ? `${business.name} is ready`
+          : `${business.name} needs attention — ${findings.length} finding${findings.length === 1 ? '' : 's'}`,
+      output: {
+        business_id: business.id,
+        business_name: business.name,
+        business_kind: business.kind,
+        verdict: findings.length === 0 ? 'ready' : 'attention',
+        findings,
+        active_agents: active.length,
+        total_agents: agents.length,
+        budget_ceiling: budget.max_cost_per_video,
+      },
+    };
+  },
+};
+
 export const OPERATIONS_HANDLERS: CapabilityHandler<never>[] = [
   managerBriefing,
   managerRecommendations,
+  systemReadinessAudit,
+  businessReadinessCheck,
 ] as unknown as CapabilityHandler<never>[];
