@@ -5,7 +5,7 @@ updated: 2026-08-03
 owner: fayaz
 summary: A system mission scheduled business-scoped work with no business behind it
 severity: high
-commit: TBD
+commit: 4da2289
 resolved: 2026-08
 related:
   - [[Capability Scope]]
@@ -103,7 +103,7 @@ still attributes findings to the right business after the retry).
 
 ## Commit
 
-TBD — pending push.
+`4da2289`
 
 ## Lessons learned
 
