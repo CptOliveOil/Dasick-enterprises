@@ -5,7 +5,7 @@ updated: 2026-08-03
 owner: fayaz
 summary: workflow_runs kept a hard foreign key to a table built-in workflows deliberately never populate
 severity: high
-commit: TBD
+commit: 3eed32a
 resolved: 2026-08
 related:
   - [[workflow_runs]]
@@ -127,7 +127,7 @@ same way every other rule in that file is transcribed from a real policy.
 
 ## Commit
 
-TBD — pending push.
+`3eed32a`
 
 ## Lessons learned
 
