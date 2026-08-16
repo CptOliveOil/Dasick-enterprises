@@ -1,7 +1,7 @@
 ---
 status: living
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 related:
   - [[Roadmap]]
@@ -41,3 +41,4 @@ Kept because the pattern matters more than the fix.
 - The Etsy pipeline covered 3 of 11 required product outputs, with no code turning an approved opportunity into a product → [[ADR-015 Etsy Production Reuses The YouTube Pattern]], [[Etsy Product Build]]
 - A system-level mission (Operational Readiness) had no way to run business-scoped work without guessing a business or failing three layers down → [[Operational Readiness Fans Out Instead Of Guessing A Business]], [[ADR-016 Fan Out Child Missions Rather Than Multi-Business Steps]]
 - `workflow_runs` kept a hard foreign key to a table built-in workflows deliberately never populate, so any built-in-workflow mission failed against a real database → [[Workflow Runs Referenced A Workflow That Was Never A Database Row]]
+- Every Operational Readiness child mission got stuck at "Running, 0/1, 0%" indefinitely — a task with no assigned agent was excluded from the runnable list, and a queued-only mission misread as "Running" → [[A Missing Agent Left A Readiness Task Queued Forever]]

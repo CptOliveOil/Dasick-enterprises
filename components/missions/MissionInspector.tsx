@@ -3,8 +3,8 @@
 import { Play, RotateCw, X } from 'lucide-react';
 import { useState } from 'react';
 import { useWorkforce } from '@/lib/store/workforce';
-import { MISSION_STATUS_STYLES, TASK_STATUS_STYLES } from '@/lib/agents/status';
-import { formatRelativeTime, missionLabel } from '@/lib/utils';
+import { describeTaskLifecycle, MISSION_STATUS_STYLES, TASK_STATUS_STYLES } from '@/lib/agents/status';
+import { missionLabel } from '@/lib/utils';
 import { Badge, Button, DemoNotice, ProgressBar } from '@/components/ui';
 import type { Mission } from '@/types/domain';
 
@@ -155,7 +155,9 @@ export function MissionInspector({
                         </span>
                       )}
                       <span className={taskStyle.text}>{taskStyle.label}</span>
-                      <span>{formatRelativeTime(task.completed_at ?? task.created_at)}</span>
+                    </span>
+                    <span className="mt-0.5 block text-[10.5px] leading-snug text-[var(--color-ink-faint)]">
+                      {describeTaskLifecycle(task)}
                     </span>
                     {task.error && (
                       <span className="mt-1 block text-[11px] leading-snug text-amber-300">

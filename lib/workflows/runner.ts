@@ -3,6 +3,7 @@ import type { DataStore } from '@/lib/db/tables';
 import { logActivity } from '@/lib/agents/activity';
 import { runAgent, type RunAgentResult } from '@/lib/agents/engine';
 import { recordMissionOutcome } from '@/lib/memory/business';
+import { reclaimStaleTasks } from './reclaim';
 import {
   getRunnableTasks,
   recomputeMission,
@@ -39,21 +40,22 @@ export async function runMission(
   const results: RunAgentResult[] = [];
   let haltedBecause: string | null = null;
 
+  // Before doing anything else: a task this mission left `running` from a
+  // request that never reached its own completion (a crashed process, a
+  // server restart between steps) is not being worked on by anything —
+  // reclaiming it here is what lets this same call pick it back up instead
+  // of finding it "running" and skipping it forever.
+  await reclaimStaleTasks(store, ownerId, { missionId });
+
   for (let step = 0; step < maxSteps; step += 1) {
     await releaseUnblockedTasks(store, missionId);
     const runnable = await getRunnableTasks(store, missionId);
     if (runnable.length === 0) {
-      // Distinguish "finished" from "stuck": a step with no agent can never
-      // run, and silently reporting success would hide that.
-      if (step === 0) {
-        const tasks = await store.list('tasks', { where: { mission_id: missionId } });
-        const unassigned = tasks.filter((t) => !t.agent_id && t.status !== 'cancelled');
-        if (unassigned.length > 0) {
-          haltedBecause =
-            unassigned[0]!.error ??
-            `No available agent can run "${unassigned[0]!.title}".`;
-        }
-      }
+      // Nothing left to attempt: every remaining task is either finished,
+      // waiting on a dependency that has not resolved, or (rarely) `waiting`
+      // for an approval-driven re-queue that has not happened yet. A task
+      // with no agent is *not* one of these cases any more — it is runnable,
+      // and `runAgent` fails it plainly instead of leaving it stuck.
       break;
     }
 

@@ -118,6 +118,9 @@ async function scriptWorkspace(options: {
     started_at: timestamp,
     completed_at: null,
     due_at: null,
+    claimed_at: null,
+    heartbeat_at: null,
+    reclaim_count: 0,
   };
   await store.insert('tasks', task);
 

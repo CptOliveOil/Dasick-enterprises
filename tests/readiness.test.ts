@@ -5,7 +5,7 @@ import { runAgent } from '@/lib/agents/engine';
 import { handleCommand } from '@/lib/agents/manager';
 import { startOperationalReadiness } from '@/lib/workflows/readiness';
 import { capabilityScope, businessCapabilitiesWithoutBusiness, ScopeViolation } from '@/lib/agents/scope';
-import { makeReadinessWorkspace, OWNER_ID } from './helpers';
+import { makeReadinessWorkspace, makeBusiness, OWNER_ID } from './helpers';
 
 /**
  * Operational Readiness: the design bug was a system-level mission needing
@@ -186,6 +186,55 @@ describe('aggregated readiness', () => {
     expect(finished!.status).toBe('failed');
     const report = finished!.context.report as string;
     expect(report).toMatch(/Test Etsy Shop readiness.*failed/s);
+  });
+});
+
+describe('a brand-new Operational Readiness mission, end to end', () => {
+  it('runs through the exact production path (handleCommand + Promise.all(runMission)) and every child finishes — none left Running', async () => {
+    const { store, youtube, etsy } = await makeReadinessWorkspace();
+    // A third business (Islamic Channel), matching the reported real-world
+    // shape: YouTube, Etsy, Islamic and shared infrastructure — four children.
+    const islamic = makeBusiness({ name: 'Islamic Channel', slug: 'islamic-channel', kind: 'youtube' });
+    await store.insert('businesses', islamic);
+
+    // `app/api/command/route.ts`'s exact sequence: plan, then advance every
+    // mission the plan produced with `Promise.all`.
+    const result = await handleCommand(store, OWNER_ID, 'Run an operational readiness check.');
+    expect(result.missions.length).toBe(5); // parent + 3 businesses + infrastructure
+    const runs = await Promise.all(
+      result.missions.map((mission) => runMission(store, OWNER_ID, mission.id)),
+    );
+    expect(runs.every((r) => r.status !== 'unknown')).toBe(true);
+
+    const parent = await store.get('missions', result.mission!.id);
+    const children = await store.list('missions', { where: { parent_mission_id: parent!.id } });
+    expect(children).toHaveLength(4);
+
+    for (const child of children) {
+      expect(['completed', 'failed']).toContain(child.status);
+      expect(child.status).not.toBe('running');
+      expect(child.status).not.toBe('planning');
+      const tasks = await store.list('tasks', { where: { mission_id: child.id } });
+      expect(tasks.every((t) => t.status === 'completed' || t.status === 'failed')).toBe(true);
+    }
+
+    // The parent itself waited for every child and is not stuck either.
+    expect(['completed', 'failed']).toContain(parent!.status);
+    expect(typeof parent!.context.report).toBe('string');
+    const report = parent!.context.report as string;
+    expect(report).toMatch(/Test YouTube readiness/);
+    expect(report).toMatch(/Test Etsy Shop readiness/);
+    expect(report).toMatch(/Islamic Channel readiness/);
+    expect(report).toMatch(/Shared infrastructure audit/);
+
+    // Every business child stayed scoped to its own business — the exact
+    // isolation guarantee Operational Readiness exists to preserve.
+    const youtubeChild = children.find((c) => c.business_id === youtube.id)!;
+    const etsyChild = children.find((c) => c.business_id === etsy.id)!;
+    const islamicChild = children.find((c) => c.business_id === islamic.id)!;
+    expect(youtubeChild).toBeTruthy();
+    expect(etsyChild).toBeTruthy();
+    expect(islamicChild).toBeTruthy();
   });
 });
 

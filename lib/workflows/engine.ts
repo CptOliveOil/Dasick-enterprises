@@ -85,6 +85,36 @@ export async function resolveAgentForCapability(
   businessId: string | null,
 ): Promise<string | null> {
   const agents = await store.list('agents', { where: { owner_id: ownerId } });
+  const found = pickAgent(agents, capability, businessId);
+  if (found) return found;
+
+  // No eligible agent exists yet. Before accepting that as final, backfill
+  // any global agent (e.g. the Readiness Auditor) that this account was
+  // provisioned before `AGENT_SEEDS` grew to include — see
+  // `reconcileGlobalAgents` in `lib/workspace/provision.ts` for why an
+  // already-provisioned workspace can be missing one. A workspace that
+  // genuinely has no agent for this capability (nothing to backfill) still
+  // returns null, exactly as before.
+  const { reconcileGlobalAgents } = await import('@/lib/workspace/provision');
+  const backfilled = await reconcileGlobalAgents(store, ownerId, agents);
+  if (!backfilled) return null;
+  const refreshed = await store.list('agents', { where: { owner_id: ownerId } });
+  return pickAgent(refreshed, capability, businessId);
+}
+
+/**
+ * Prefer an agent scoped to this business, fall back to a global agent.
+ * Disabled, offline and archived agents are never selected.
+ *
+ * Business scoping is what keeps two channels apart. An Islamic Channel with
+ * its own researcher gets that researcher; a general YouTube mission does not,
+ * because that agent is not scoped to it.
+ */
+function pickAgent(
+  agents: { capabilities: string[]; status: string; archived_at: string | null; business_id: string | null; id: string }[],
+  capability: string,
+  businessId: string | null,
+): string | null {
   const eligible = agents.filter(
     (a) =>
       a.capabilities.includes(capability) &&
@@ -303,6 +333,9 @@ export async function createMission(
       started_at: null,
       completed_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     };
     tasks.push(task);
   }
@@ -365,7 +398,12 @@ export async function getRunnableTasks(
 
   return tasks.filter((task) => {
     if (task.status !== 'queued') return false;
-    if (!task.agent_id) return false;
+    // A task with no agent is still "runnable" in the sense that matters
+    // here: it is next in line. Excluding it used to mean it was never
+    // picked up at all — invisible to `runAgent`, which is the only thing
+    // that ever turns "no agent" into a real, terminal `failed` status —
+    // and it sat `queued` forever instead. `runAgent` fails it gracefully
+    // now, so there is no longer a reason to hide it from this list.
     const deps = dependencies.filter((d) => d.task_id === task.id);
     return deps.every((d) => byId.get(d.depends_on_task_id)?.status === 'completed');
   });
@@ -442,7 +480,15 @@ export function deriveMissionState(tasks: Task[]): {
   else if (finished === tasks.length) status = 'cancelled';
   else if (counts.approval > 0) status = 'needs_approval';
   else if (counts.running > 0) status = 'running';
-  else if (counts.queued > 0) status = 'running';
+  // Queued is not running. A mission whose only task has never actually
+  // started must not read as "in progress" — that reading is exactly what let
+  // a task nobody had picked up sit for hours looking identical to one
+  // genuinely being worked. `planning` already means "nothing has happened
+  // yet" everywhere else it is used (a brand-new mission's own creation-time
+  // status), and every caller that treats a mission as "in progress" already
+  // groups `planning` with `running` (see `deriveParentMissionState` below,
+  // `components/missions/MissionInspector.tsx`, `lib/operations/quick-commands.ts`).
+  else if (counts.queued > 0) status = 'planning';
   else status = 'waiting';
 
   return { status, progress: Math.min(100, Math.max(0, progress)) };

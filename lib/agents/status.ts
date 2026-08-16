@@ -1,4 +1,5 @@
-import type { AgentStatus, MissionStatus, TaskStatus } from '@/types/domain';
+import type { AgentStatus, MissionStatus, Task, TaskStatus } from '@/types/domain';
+import { formatDuration, formatRelativeTime } from '@/lib/utils';
 
 export interface StatusStyle {
   label: string;
@@ -95,4 +96,56 @@ export const MISSION_STATUS_STYLES: Record<
 
 export function agentStatusStyle(status: AgentStatus): StatusStyle {
   return AGENT_STATUS_STYLES[status];
+}
+
+/** How long a `running` task goes without a heartbeat before it reads as stale in the UI. */
+const STALE_HINT_MS = 2 * 60 * 1000;
+
+/**
+ * One line covering a task's whole lifecycle — Created, Claimed, Started,
+ * Completed/Failed — so the operator can see whether a task is genuinely
+ * alive without opening a database table.
+ *
+ * `claimed_at` is when the runner picked the task up, distinct from
+ * `started_at` (the handler actually beginning); a gap between the two, or a
+ * `running` task whose heartbeat has gone quiet, is itself the signal that a
+ * task some request was working on got orphaned by a crash or restart.
+ */
+export function describeTaskLifecycle(task: Task): string {
+  const parts: string[] = [`Created ${formatRelativeTime(task.created_at)}`];
+
+  if (task.status === 'queued' && !task.claimed_at) {
+    parts.push('never picked up yet');
+    if (task.reclaim_count > 0) {
+      parts.push(
+        `recovered from a stale run ${task.reclaim_count} time${task.reclaim_count === 1 ? '' : 's'}`,
+      );
+    }
+    return parts.join(' — ');
+  }
+
+  if (task.claimed_at) parts.push(`claimed ${formatRelativeTime(task.claimed_at)}`);
+  if (task.started_at) parts.push(`started ${formatRelativeTime(task.started_at)}`);
+
+  if (task.status === 'running') {
+    const lastSign = task.heartbeat_at ?? task.claimed_at ?? task.started_at;
+    const age = lastSign ? Date.now() - new Date(lastSign).getTime() : null;
+    if (age !== null && age > STALE_HINT_MS) {
+      parts.push(`no activity for ${formatDuration(age)} — likely stale`);
+    } else {
+      parts.push('in progress');
+    }
+    return parts.join(' — ');
+  }
+
+  if (task.completed_at) {
+    const label = task.status === 'failed' ? 'failed' : 'completed';
+    const startedAt = task.started_at ?? task.claimed_at;
+    const took = startedAt
+      ? ` (took ${formatDuration(new Date(task.completed_at).getTime() - new Date(startedAt).getTime())})`
+      : '';
+    parts.push(`${label} ${formatRelativeTime(task.completed_at)}${took}`);
+  }
+
+  return parts.join(' — ');
 }

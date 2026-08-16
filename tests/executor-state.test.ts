@@ -132,6 +132,9 @@ describe('previous outputs', () => {
       is_demo: false,
       started_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     };
     await store.insert('tasks', {
       ...base,

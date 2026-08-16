@@ -296,6 +296,26 @@ export interface Task {
   started_at: Timestamp | null;
   completed_at: Timestamp | null;
   due_at: Timestamp | null;
+  /**
+   * When the runner picked this task to attempt next — set just before
+   * `runAgent` begins, distinct from `started_at` (which marks the handler
+   * actually beginning) so a gap between the two is itself diagnostic.
+   */
+  claimed_at: Timestamp | null;
+  /**
+   * Bumped at each progress milestone while `running`. The basis for stale
+   * detection (`reclaimStaleTasks`, `lib/workflows/reclaim.ts`): a task whose
+   * heartbeat has not moved in longer than its capability's expected window
+   * was very likely orphaned by a crash or restart, not genuinely still
+   * working.
+   */
+  heartbeat_at: Timestamp | null;
+  /**
+   * How many times this task has been returned to `queued` after being found
+   * stale. Bounded, so a task that keeps dying the same way ends in `failed`
+   * with a clear reason instead of being reclaimed forever.
+   */
+  reclaim_count: number;
 }
 
 export interface TaskDependency {

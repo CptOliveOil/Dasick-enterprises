@@ -1,13 +1,14 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 summary: Checks configuration, never content
 related:
   - [[Operational Readiness]]
   - [[Business Readiness]]
   - [[Shared Infrastructure Audit]]
+  - [[A Missing Agent Left A Readiness Task Queued Forever]]
 tags:
   - agent
 ---
@@ -42,7 +43,15 @@ A readiness check that could hallucinate would be worse than none.
 
 ## Failure examples
 
-- n/a — new agent, no incidents recorded yet.
+- Any account provisioned before this agent existed in `AGENT_SEEDS` never
+  received it — `provisionWorkspace` only seeds a genuinely empty workspace,
+  so it never re-ran for an existing one. Every readiness task on such an
+  account was created with `agent_id: null`, permanently, and sat `queued`
+  forever with nothing able to resolve it. See
+  [[A Missing Agent Left A Readiness Task Queued Forever]].
+  `resolveAgentForCapability` and `provisionWorkspace` now both backfill it
+  on an already-provisioned account, by slug, without duplicating it or
+  touching anything else.
 
 ## Future ideas
 
@@ -53,3 +62,4 @@ A readiness check that could hallucinate would be worse than none.
 - [[Operational Readiness]]
 - [[Business Readiness]]
 - [[Shared Infrastructure Audit]]
+- [[A Missing Agent Left A Readiness Task Queued Forever]]

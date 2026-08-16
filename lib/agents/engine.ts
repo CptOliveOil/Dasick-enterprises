@@ -44,10 +44,26 @@ export async function runAgent(
 ): Promise<RunAgentResult> {
   const task = await store.get('tasks', taskId);
   if (!task) throw new Error(`No task with id ${taskId}`);
-  if (!task.agent_id) throw new Error(`Task ${taskId} has no assigned agent`);
 
+  // Both of these are domain outcomes, not caller errors — `createMission`
+  // already records why no agent was found, and an agent can be deleted out
+  // from under a task that was created while it still existed. Failing the
+  // task here, gracefully, is what makes this safe to call from inside a
+  // `Promise.all` of unrelated missions: one mission's missing agent must
+  // never throw an unhandled error that aborts every other mission still
+  // running alongside it.
+  if (!task.agent_id) {
+    return failTaskOnly(
+      store,
+      ownerId,
+      task,
+      task.error ?? 'No agent is assigned to this task.',
+    );
+  }
   const agent = await store.get('agents', task.agent_id);
-  if (!agent) throw new Error(`No agent with id ${task.agent_id}`);
+  if (!agent) {
+    return failTaskOnly(store, ownerId, task, `Assigned agent ${task.agent_id} no longer exists.`);
+  }
 
   if (agent.status === 'disabled' || agent.status === 'offline') {
     return fail(store, ownerId, task, agent, `${agent.name} is ${agent.status}.`);
@@ -82,6 +98,8 @@ export async function runAgent(
   await store.update('tasks', task.id, {
     status: 'running',
     started_at: task.started_at ?? startedAt,
+    claimed_at: task.claimed_at ?? startedAt,
+    heartbeat_at: startedAt,
     progress: 5,
     error: null,
   });
@@ -118,7 +136,7 @@ export async function runAgent(
       previousOutputs: await loadPreviousOutputs(store, task.mission_id, task.id),
     };
 
-    await store.update('tasks', task.id, { progress: 25 });
+    await store.update('tasks', task.id, { progress: 25, heartbeat_at: new Date().toISOString() });
 
     // A provider step calls a media provider or the renderer rather than an AI
     // model. It still runs here so authority, cost, logging and approvals are
@@ -133,7 +151,7 @@ export async function runAgent(
         return fail(store, ownerId, task, agent, `"${capability}" has no provider implementation.`);
       }
       persisted = await handler.run(ctx);
-      await store.update('tasks', task.id, { progress: 75 });
+      await store.update('tasks', task.id, { progress: 75, heartbeat_at: new Date().toISOString() });
     } else {
       if (!handler.buildPrompt || !handler.persist) {
         return fail(store, ownerId, task, agent, `"${capability}" has no prompt implementation.`);
@@ -179,7 +197,7 @@ export async function runAgent(
       usage = result.usage;
       repaired = result.repaired;
 
-      await store.update('tasks', task.id, { progress: 75 });
+      await store.update('tasks', task.id, { progress: 75, heartbeat_at: new Date().toISOString() });
       persisted = await handler.persist(ctx, result.data);
     }
 
@@ -361,6 +379,50 @@ async function fail(
     ownerId,
     kind: 'agent_failed',
     title: `${agent.name} failed a task`,
+    body: message,
+    href: `/tasks/${task.id}`,
+  });
+  return {
+    taskId: task.id,
+    status: 'failed',
+    summary: message,
+    output: null,
+    error: message,
+    approvalId: null,
+    blocked: null,
+    simulated: false,
+  };
+}
+
+/**
+ * `fail()` without an agent — for the two cases where none exists to update:
+ * no agent was ever assigned, or the one that was has since been deleted.
+ */
+async function failTaskOnly(
+  store: DataStore,
+  ownerId: string,
+  task: Task,
+  message: string,
+): Promise<RunAgentResult> {
+  const timestamp = new Date().toISOString();
+  await store.update('tasks', task.id, {
+    status: 'failed',
+    error: message,
+    completed_at: timestamp,
+  });
+  await logActivity(store, {
+    ownerId,
+    businessId: task.business_id,
+    missionId: task.mission_id,
+    taskId: task.id,
+    agentId: null,
+    kind: 'agent_failed',
+    message: `"${task.title}" could not run — ${message}`,
+  });
+  await notify(store, {
+    ownerId,
+    kind: 'agent_failed',
+    title: 'A task could not run',
     body: message,
     href: `/tasks/${task.id}`,
   });

@@ -351,6 +351,9 @@ describe('spend approval', () => {
       started_at: timestamp,
       completed_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     });
     await store.insert('approvals', {
       id: '56f33eeb-4618-40f6-8e43-8a0a31772fa4',
@@ -400,6 +403,9 @@ describe('spend approval', () => {
       started_at: timestamp,
       completed_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     });
     await store.insert('approvals', {
       id: '0794cc79-ce16-4435-8b31-67d03556cdcd',
@@ -474,6 +480,9 @@ describe('agent execution engine', () => {
       started_at: null,
       completed_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     });
 
     const result = await runAgent(store, OWNER_ID, 'a81779af-e22a-4d6f-8728-2f3470e0e297');

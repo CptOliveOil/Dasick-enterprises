@@ -87,6 +87,9 @@ async function fixture(options: { withVersions?: boolean } = {}) {
     started_at: timestamp,
     completed_at: timestamp,
     due_at: null,
+    claimed_at: null,
+    heartbeat_at: null,
+    reclaim_count: 0,
   };
   await store.insert('tasks', scriptTask);
 
@@ -351,6 +354,9 @@ describe('failing loudly', () => {
       started_at: null,
       completed_at: null,
       due_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+      reclaim_count: 0,
     };
     await store.insert('tasks', task);
 

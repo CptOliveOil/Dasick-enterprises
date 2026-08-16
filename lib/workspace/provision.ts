@@ -91,7 +91,8 @@ export async function provisionWorkspace(
 
   const existingAgents = await store.list('agents', { where: { owner_id: ownerId } });
   if (existingAgents.length > 0) {
-    return { businesses: 0, agents: 0, alreadyProvisioned: true };
+    const reconciled = await reconcileGlobalAgents(store, ownerId, existingAgents);
+    return { businesses: 0, agents: reconciled, alreadyProvisioned: true };
   }
 
   const timestamp = new Date().toISOString();
@@ -163,6 +164,41 @@ export async function provisionWorkspace(
     agents: agents.length,
     alreadyProvisioned: false,
   };
+}
+
+/**
+ * Backfills global agents (`business: null` in `AGENT_SEEDS`, e.g. the
+ * Readiness Auditor) that are missing from an *already-provisioned* real
+ * workspace.
+ *
+ * `provisionWorkspace` only ever runs its full seed once, on a genuinely
+ * empty workspace — that idempotency is deliberate, so re-running setup
+ * never spawns a second Manager competing with the first. But it means an
+ * account provisioned before a global agent existed in `AGENT_SEEDS` never
+ * gets it: nothing re-seeds an existing workspace when the roster grows.
+ * Left alone, every task that needs that agent is created with
+ * `agent_id: null` forever — this is what backfills it, by slug, touching
+ * nothing that already exists.
+ *
+ * Deliberately global-only: a missing per-business agent would need a
+ * business to attach it to, which is a materially different (and, as far as
+ * this codebase has audited, not currently needed) case.
+ */
+export async function reconcileGlobalAgents(
+  store: DataStore,
+  ownerId: string,
+  existingAgents: { slug: string }[],
+): Promise<number> {
+  const existingSlugs = new Set(existingAgents.map((a) => a.slug));
+  const missing = AGENT_SEEDS.filter(
+    (seed) => seed.business === null && !existingSlugs.has(seed.slug),
+  );
+  if (missing.length === 0) return 0;
+
+  const timestamp = new Date().toISOString();
+  const agents = missing.map((seed) => blankAgent(seed, ownerId, new Map(), timestamp));
+  await store.insertMany('agents', agents);
+  return agents.length;
 }
 
 /**

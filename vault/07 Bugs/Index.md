@@ -1,7 +1,7 @@
 ---
 status: living
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 related:
 tags:
@@ -35,3 +35,6 @@ SORT resolved DESC
 | Advisory UI text mistaken for enforcement | [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] |
 | A decision changing what's true, without revisiting everything that assumed the old truth | [[Workflow Runs Referenced A Workflow That Was Never A Database Row]] |
 | A test double invisible to the one constraint that mattered | [[Workflow Runs Referenced A Workflow That Was Never A Database Row]] |
+| A graceful-looking failure at creation time that nothing downstream ever reads | [[A Missing Agent Left A Readiness Task Queued Forever]] |
+| Two meaningfully different states sharing one status label | [[A Missing Agent Left A Readiness Task Queued Forever]] |
+| Idempotent provisioning with no path to backfill growth | [[A Missing Agent Left A Readiness Task Queued Forever]] |

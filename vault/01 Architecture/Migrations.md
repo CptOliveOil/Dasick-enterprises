@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 summary: Ordered, additive, never rewritten
 related:
@@ -56,6 +56,7 @@ tags:
 | `0009_etsy_production.sql` | `media_assets.product_id` (+ `archive` type), `etsy_products` design/artwork/mockup/package columns |
 | `0010_mission_hierarchy.sql` | `missions.parent_mission_id` — parent/child missions for Operational Readiness |
 | `0011_workflow_run_identity.sql` | `workflow_runs.workflow_key`; `workflow_definition_id` made nullable, kept only for a genuine custom workflow |
+| `0012_task_lifecycle.sql` | `tasks.claimed_at`, `tasks.heartbeat_at`, `tasks.reclaim_count` — stale-`running`-task recovery. Adds columns only; safe against 0001–0011. |
 
 ## Future improvements
 

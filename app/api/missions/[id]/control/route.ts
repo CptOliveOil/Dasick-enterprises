@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
 import { recomputeMission, releaseUnblockedTasks } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
+import { reclaimStaleTasks } from '@/lib/workflows/reclaim';
 import { runAgent } from '@/lib/agents/engine';
 import { recordOperatorAction } from '@/lib/production/actions';
 import { dataErrorResponse } from '@/lib/api/errors';
+import type { DataStore } from '@/lib/db/tables';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -188,42 +190,51 @@ export async function POST(
     }
 
     case 'retry_mission': {
-      // Picks up exactly where the mission stopped.
-      //
-      // Failed steps are re-queued, and so are the steps that were cancelled
-      // *because* of them — without that second part a retry re-runs the failed
-      // step and then stops again, because its dependents are still cancelled.
-      //
-      // Completed steps are left completely alone. That is what makes this safe
-      // to press: their output stands, no record is written twice, and no model
-      // is called again for work already paid for.
-      const failed = tasks.filter((task) => task.status === 'failed');
-      const collateral = tasks.filter(
-        (task) =>
-          task.status === 'cancelled' &&
-          task.error === 'An upstream step failed, so this step was cancelled.',
-      );
-      const resettable = [...failed, ...collateral];
+      // A pure orchestrator (Operational Readiness and the like) has no tasks
+      // of its own — its status is entirely derived from its children (see
+      // `deriveParentMissionState`/`recomputeMission`). Retrying it means
+      // retrying whichever children have not reached a terminal state; there
+      // is nothing on the parent's own row to reset.
+      const children =
+        tasks.length === 0
+          ? await store.list('missions', { where: { parent_mission_id: id } })
+          : [];
 
-      if (resettable.length === 0) {
+      if (children.length > 0) {
+        const runs = [];
+        let retriedChildren = 0;
+        for (const child of children) {
+          if (child.status === 'completed' || child.status === 'cancelled') continue;
+          await retryMissionTasks(store, ownerId, child.id);
+          runs.push(await runMission(store, ownerId, child.id));
+          retriedChildren += 1;
+        }
+        await recordOperatorAction(store, {
+          ownerId,
+          businessId: mission.business_id,
+          missionId: id,
+          taskId: null,
+          message:
+            retriedChildren > 0
+              ? `Retried ${retriedChildren} child mission${retriedChildren === 1 ? '' : 's'}`
+              : 'Nothing to retry — every child mission has already finished',
+        });
+        return NextResponse.json({
+          retried: retriedChildren,
+          runs,
+          mission: await store.get('missions', id),
+        });
+      }
+
+      const { resettable, kept } = await retryMissionTasks(store, ownerId, id);
+      if (resettable === 0) {
         return NextResponse.json(
           {
-            error: 'Nothing to retry — this mission has no failed or cancelled steps.',
+            error: 'Nothing to retry — this mission has no failed, stale or unstarted steps.',
             retried: 0,
           },
           { status: 409 },
         );
-      }
-
-      for (const task of resettable) {
-        await store.update('tasks', task.id, {
-          status: 'queued',
-          error: null,
-          output: null,
-          progress: 0,
-          started_at: null,
-          completed_at: null,
-        });
       }
 
       await recordOperatorAction(store, {
@@ -231,14 +242,13 @@ export async function POST(
         businessId: mission.business_id,
         missionId: id,
         taskId: null,
-        message: `Retrying ${resettable.length} step${resettable.length === 1 ? '' : 's'} — completed work was kept`,
+        message: `Retrying ${resettable} step${resettable === 1 ? '' : 's'} — completed work was kept`,
       });
 
-      await releaseUnblockedTasks(store, id);
       const run = await runMission(store, ownerId, id);
       return NextResponse.json({
-        retried: resettable.length,
-        kept: tasks.length - resettable.length,
+        retried: resettable,
+        kept,
         run,
         mission: await store.get('missions', id),
       });
@@ -256,4 +266,55 @@ export async function POST(
       { status: 500 },
     );
   }
+}
+
+/**
+ * Resets one mission's own failed steps (and the steps cancelled *because* of
+ * them) to `queued`, reclaims anything left stale `running` first, and
+ * releases whatever that unblocks.
+ *
+ * A step that is already `queued` and was simply never attempted — the exact
+ * shape a task with no assigned agent used to get stuck in, and identical to
+ * what a stale `running` task looks like right after `reclaimStaleTasks`
+ * requeues it — needs no resetting; it is already runnable. It still counts
+ * toward `resettable`, so a mission whose only problem was "nobody ever
+ * picked this up" is not reported as having "nothing to retry".
+ *
+ * Never calls `runMission` itself — the two call sites differ on whether
+ * "nothing to retry" is a 409 (a single mission) or simply skipped (one
+ * child among several, cascaded from a parent orchestrator).
+ */
+async function retryMissionTasks(
+  store: DataStore,
+  ownerId: string,
+  missionId: string,
+): Promise<{ resettable: number; kept: number }> {
+  await reclaimStaleTasks(store, ownerId, { missionId });
+  const tasks = await store.list('tasks', { where: { mission_id: missionId } });
+
+  const failed = tasks.filter((task) => task.status === 'failed');
+  const collateral = tasks.filter(
+    (task) =>
+      task.status === 'cancelled' &&
+      task.error === 'An upstream step failed, so this step was cancelled.',
+  );
+  const queued = tasks.filter((task) => task.status === 'queued');
+
+  for (const task of [...failed, ...collateral]) {
+    await store.update('tasks', task.id, {
+      status: 'queued',
+      error: null,
+      output: null,
+      progress: 0,
+      started_at: null,
+      completed_at: null,
+      claimed_at: null,
+      heartbeat_at: null,
+    });
+  }
+
+  await releaseUnblockedTasks(store, missionId);
+
+  const resettable = failed.length + collateral.length + queued.length;
+  return { resettable, kept: tasks.length - resettable };
 }

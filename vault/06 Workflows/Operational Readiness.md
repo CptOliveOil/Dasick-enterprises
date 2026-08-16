@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 summary: Fans out across every business, waits for all of them, reports once
 related:
@@ -9,6 +9,8 @@ related:
   - [[Shared Infrastructure Audit]]
   - [[Capability Scope]]
   - [[Mission Engine]]
+  - [[Task Graph]]
+  - [[A Missing Agent Left A Readiness Task Queued Forever]]
 tags:
   - workflow
 ---
@@ -80,6 +82,26 @@ touches another's tasks, business, or output. See
 [[Operational Readiness Fans Out Instead Of Guessing A Business]] for why
 this mattered enough to write regression tests for specifically.
 
+Retrying the *parent* now cascades: since it has no tasks of its own, a
+retry finds every child that has not reached a terminal state and retries
+each of them in turn, reclaiming any stale work first — see [[Task Graph]]
+and [[Retry Engine]]. One click on the parent recovers the whole tree.
+
+## Every child completes without a background worker
+
+Each child's own task runs synchronously, in the same request that created
+it — `app/api/command/route.ts` calls `runMission` on the parent and every
+child immediately after `startOperationalReadiness` returns. Both readiness
+capabilities (`system.readiness.audit`, `business.readiness.check`) are
+`mode: 'provider'`: no AI call, no cost, and no dependency on
+`ANTHROPIC_API_KEY` being configured — they read what is actually
+configured (providers, budgets, businesses) the same way the status pages
+do. A real workspace's children got stuck `Running` at 0% for hours because
+of a separate bug in how a task with no assigned agent was handled, not
+because this workflow ever needed a worker process that doesn't exist — see
+[[A Missing Agent Left A Readiness Task Queued Forever]] for the full trace
+and fix.
+
 ## Expected outputs
 
 One report per run, naming every business and shared infrastructure, each
@@ -96,3 +118,6 @@ with a verdict (`ready` / `attention` / a mission status) and findings.
 - [[Shared Infrastructure Audit]]
 - [[Capability Scope]]
 - [[Mission Engine]]
+- [[Task Graph]]
+- [[Retry Engine]]
+- [[A Missing Agent Left A Readiness Task Queued Forever]]

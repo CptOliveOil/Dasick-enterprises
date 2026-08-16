@@ -2,6 +2,8 @@ import 'server-only';
 import { anthropicConfigured, config } from '@/lib/config';
 import type { DataStore } from '@/lib/db/tables';
 import { summariseFinance } from '@/lib/finance/calculations';
+import { reclaimStaleTasks } from '@/lib/workflows/reclaim';
+import { recomputeMission } from '@/lib/workflows/engine';
 import type { LiveConnection, WorkforceSnapshot } from '@/types/state';
 
 /** How long a handoff keeps drawing a beam between two planets. */
@@ -14,6 +16,21 @@ export async function buildSnapshot(
   ownerId: string,
   isDemo: boolean,
 ): Promise<WorkforceSnapshot> {
+  // Passive recovery: the operator should never need to open raw database
+  // tables to notice a task orphaned by a crash or restart — reading state
+  // is itself enough to reclaim one and let its mission's status catch up,
+  // with no separate action required.
+  const reclaimed = await reclaimStaleTasks(store, ownerId);
+  if (reclaimed.requeued.length > 0 || reclaimed.failed.length > 0) {
+    const affected = await store.list('tasks', {
+      where: { id: [...reclaimed.requeued, ...reclaimed.failed] },
+    });
+    const missionIds = new Set(
+      affected.map((t) => t.mission_id).filter((id): id is string => id !== null),
+    );
+    for (const missionId of missionIds) await recomputeMission(store, missionId);
+  }
+
   const [
     businesses,
     agents,

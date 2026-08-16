@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-16
 owner: fayaz
 summary: Turns an instruction into a mission with a dependency-ordered task graph
 related:
@@ -12,6 +12,7 @@ related:
   - [[Manager]]
   - [[Capability Scope]]
   - [[Operational Readiness]]
+  - [[A Missing Agent Left A Readiness Task Queued Forever]]
 tags:
   - architecture
 ---
@@ -66,13 +67,23 @@ tags:
 
 ## Failure modes
 
-- **No agent provides a capability** → the task is created with an error rather than silently skipped, so the gap is visible.
+- **No agent provides a capability** → the task is created with a pre-filled
+  `error` naming the gap and `agent_id: null`, rather than silently skipped.
+  This alone used to leave it `queued` forever and invisible — see
+  [[A Missing Agent Left A Readiness Task Queued Forever]] — `getRunnableTasks`
+  now includes it so `runAgent` can fail it cleanly, and
+  `resolveAgentForCapability` backfills a missing *global* agent
+  (provisioning drift — see the same page) before accepting "no agent" as
+  final.
 - **Derived step keys collide** → fixed; see [[Step Key Collision]].
 - **A step ends without changing status** → the runner would loop; bounded by `maxSteps`.
 - **A system mission needs business-scoped work** → fixed; see
   [[Operational Readiness Fans Out Instead Of Guessing A Business]]. Never
   solved by attaching a business to the system mission — solved by fanning
   out into one child mission per business.
+- **A mission with nothing running but something queued read as `running`** →
+  indistinguishable from genuine progress. Fixed; see
+  [[A Missing Agent Left A Readiness Task Queued Forever]].
 
 ## Future improvements
 

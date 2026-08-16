@@ -200,6 +200,9 @@ async function requestResearch(
     started_at: null,
     completed_at: null,
     due_at: null,
+    claimed_at: null,
+    heartbeat_at: null,
+    reclaim_count: 0,
   });
 
   return task.id;

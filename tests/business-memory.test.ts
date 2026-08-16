@@ -84,6 +84,9 @@ async function costedTask(store: DataStore, mission: Mission, cost: number) {
     started_at: timestamp,
     completed_at: timestamp,
     due_at: null,
+    claimed_at: null,
+    heartbeat_at: null,
+    reclaim_count: 0,
   };
   await store.insert('tasks', task);
   await store.insert('api_usage', {
