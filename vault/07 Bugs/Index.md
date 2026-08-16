@@ -33,3 +33,5 @@ SORT resolved DESC
 | Symptom appearing steps away from the cause | [[Script Not Found In AI Planned Missions]], [[Zoompan Frame Explosion]] |
 | A narrow field's meaning assumed to answer a broader question | [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] |
 | Advisory UI text mistaken for enforcement | [[Approving A Video Was Permanently Disabled Outside Supabase Storage]] |
+| A decision changing what's true, without revisiting everything that assumed the old truth | [[Workflow Runs Referenced A Workflow That Was Never A Database Row]] |
+| A test double invisible to the one constraint that mattered | [[Workflow Runs Referenced A Workflow That Was Never A Database Row]] |

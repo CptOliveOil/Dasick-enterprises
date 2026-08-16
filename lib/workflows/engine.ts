@@ -9,9 +9,11 @@ import type {
   MissionStatus,
   Task,
   TaskPriority,
+  WorkflowDefinition,
+  WorkflowRun,
   WorkflowStep,
 } from '@/types/domain';
-import { findWorkflow } from './definitions';
+import { findWorkflow, WORKFLOW_DEFINITIONS } from './definitions';
 
 export interface PlannedStep {
   capability: string;
@@ -95,6 +97,52 @@ export async function resolveAgentForCapability(
   return (scoped ?? eligible.find((a) => a.business_id === null) ?? eligible[0]!).id;
 }
 
+/**
+ * A workflow key resolved against both sources: code first, then the
+ * database. `findWorkflow` alone only ever finds a built-in, so a genuinely
+ * custom workflow (an owner-created row in `workflow_definitions`, the one
+ * thing that table is for — see `lib/workspace/provision.ts`) was never
+ * reachable through `workflowKey` at all until this.
+ */
+async function resolveWorkflow(
+  store: DataStore,
+  ownerId: string,
+  key: string,
+): Promise<WorkflowDefinition | undefined> {
+  const builtIn = findWorkflow(key);
+  if (builtIn) return builtIn;
+  const rows = await store.list('workflow_definitions', { where: { owner_id: ownerId, key } });
+  return rows[0];
+}
+
+/**
+ * The workflow a run identifies, whichever way it identifies it.
+ *
+ * `workflow_key` is checked first — cheap, and correct for every run written
+ * since migration 0011. A run from before that migration has no `workflow_key`
+ * but does have a `workflow_definition_id`, which for a built-in is a
+ * deterministic hash (`stableId`) that was never a database row; matching it
+ * against `WORKFLOW_DEFINITIONS` by id resolves those old runs without a
+ * backfill. A genuinely custom workflow's id *is* a real row either way, so
+ * the database lookup still finds it.
+ */
+export async function resolveRunWorkflow(
+  store: DataStore,
+  run: Pick<WorkflowRun, 'workflow_key' | 'workflow_definition_id'>,
+): Promise<WorkflowDefinition | undefined> {
+  if (run.workflow_key) {
+    const builtIn = findWorkflow(run.workflow_key);
+    if (builtIn) return builtIn;
+  }
+  if (run.workflow_definition_id) {
+    const row = await store.get('workflow_definitions', run.workflow_definition_id).catch(() => null);
+    if (row) return row;
+    const builtIn = WORKFLOW_DEFINITIONS.find((w) => w.id === run.workflow_definition_id);
+    if (builtIn) return builtIn;
+  }
+  return undefined;
+}
+
 function stepsFromWorkflow(steps: WorkflowStep[]): PlannedStep[] {
   const indexByKey = new Map(steps.map((s, i) => [s.key, i]));
   return steps.map((step) => ({
@@ -158,7 +206,13 @@ export async function createMission(
   store: DataStore,
   input: CreateMissionInput,
 ): Promise<CreatedMission> {
-  const workflow = input.workflowKey ? findWorkflow(input.workflowKey) : undefined;
+  const workflow = input.workflowKey
+    ? await resolveWorkflow(store, input.ownerId, input.workflowKey)
+    : undefined;
+  // Built-in workflows are code (`WORKFLOW_DEFINITIONS`), never rows in
+  // `workflow_definitions` — see `lib/workspace/provision.ts`. Only a
+  // genuinely custom, database-defined workflow has a real row behind it.
+  const isCustomWorkflow = workflow ? !WORKFLOW_DEFINITIONS.includes(workflow) : false;
   const planned =
     input.steps && input.steps.length > 0
       ? input.steps
@@ -271,7 +325,13 @@ export async function createMission(
     await store.insert('workflow_runs', {
       id: uuid(),
       mission_id: mission.id,
-      workflow_definition_id: workflow.id,
+      // A built-in workflow's `id` is a deterministic hash (`stableId`), not a
+      // database row — writing it here is exactly the bug `workflow_key`
+      // exists to end (migration 0011). Only a genuinely custom workflow,
+      // which is a real `workflow_definitions` row, satisfies that foreign
+      // key, so only that case gets one.
+      workflow_definition_id: isCustomWorkflow ? workflow.id : null,
+      workflow_key: workflow.key,
       status: 'planning',
       step_tasks: Object.fromEntries(tasks.map((t) => [t.step_key ?? t.id, t.id])),
       created_at: timestamp,

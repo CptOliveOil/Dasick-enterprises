@@ -55,6 +55,7 @@ tags:
 | `0008_studio.sql` | `youtube_captions`, `youtube_copyright_reviews` |
 | `0009_etsy_production.sql` | `media_assets.product_id` (+ `archive` type), `etsy_products` design/artwork/mockup/package columns |
 | `0010_mission_hierarchy.sql` | `missions.parent_mission_id` — parent/child missions for Operational Readiness |
+| `0011_workflow_run_identity.sql` | `workflow_runs.workflow_key`; `workflow_definition_id` made nullable, kept only for a genuine custom workflow |
 
 ## Future improvements
 

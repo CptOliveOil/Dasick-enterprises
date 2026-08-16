@@ -23,6 +23,12 @@ import type { DataStore, QueryOptions, Row, TableName } from '@/lib/db/tables';
  *   `owner_id is null` rows immutable.
  * - `0004`–`0007` — source resolutions, Pokémon opportunities, AI budgets and
  *   mission outcomes.
+ * - `0011_workflow_run_identity.sql` — `workflow_runs.workflow_definition_id`
+ *   is nullable and no longer `references workflow_definitions(id)` by itself;
+ *   the check below still enforces it as a foreign key *when set*, because a
+ *   non-null value that names a row that does not exist is exactly the bug
+ *   this migration exists to make impossible again — see the vault bug page
+ *   "Workflow Runs Referenced A Workflow That Was Never A Database Row".
  *
  * When a migration changes a policy, change it here too. A test double that has
  * drifted from the schema is worse than none, because it is trusted.
@@ -153,6 +159,23 @@ export class RlsMemoryStore implements DataStore {
       if (typeof missionId !== 'string') throw refusal(table);
       const mission = await this.inner.get('missions', missionId);
       if (!mission || mission.owner_id !== this.sessionUserId) throw refusal(table);
+
+      // Not an RLS rule — a foreign key. `workflow_definition_id` is nullable
+      // (migration 0011), but when it is set it must name a row that
+      // genuinely exists, exactly like Postgres enforces. This is what
+      // catches a built-in workflow's code-only id being written as if it
+      // were a database row.
+      const definitionId = record.workflow_definition_id;
+      if (definitionId != null) {
+        if (typeof definitionId !== 'string') throw refusal(table);
+        const definition = await this.inner.get('workflow_definitions', definitionId);
+        if (!definition) {
+          throw new Error(
+            'workflow_runs: insert or update on table "workflow_runs" violates foreign key ' +
+              'constraint "workflow_runs_workflow_definition_id_fkey"',
+          );
+        }
+      }
       return;
     }
 

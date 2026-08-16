@@ -336,7 +336,16 @@ export type WorkflowRunStatus = MissionStatus;
 export interface WorkflowRun {
   id: UUID;
   mission_id: UUID;
-  workflow_definition_id: UUID;
+  /**
+   * Set only for a genuinely custom, database-defined workflow — a real row
+   * in `workflow_definitions`. Null for a built-in: those are code
+   * (`WORKFLOW_DEFINITIONS`), never a database row, and writing their
+   * code-only id here is exactly the bug migration 0011 exists to prevent.
+   * See `workflow_key` for how a built-in identifies itself instead.
+   */
+  workflow_definition_id: UUID | null;
+  /** The workflow's `key`, set regardless of whether it is built-in or custom. */
+  workflow_key: string | null;
   status: WorkflowRunStatus;
   /** step key -> task id */
   step_tasks: Record<string, UUID>;
