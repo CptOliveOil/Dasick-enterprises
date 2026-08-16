@@ -5,7 +5,7 @@ updated: 2026-08-16
 owner: fayaz
 summary: A task with no assigned agent was excluded from the runnable list, so it sat queued forever and its mission misread as Running
 severity: critical
-commit:
+commit: a37396f
 resolved: 2026-08-16
 related:
   - [[Task Graph]]
@@ -218,7 +218,7 @@ and one partial index; safe against 0001–0011, no backfill needed).
 
 ## Commit
 
-_(recorded once this fix is committed and pushed)_
+`a37396f`
 
 ## Lessons learned
 
