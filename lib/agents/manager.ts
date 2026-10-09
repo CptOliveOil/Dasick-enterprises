@@ -142,6 +142,7 @@ export async function handleCommand(
   const repeat = Math.max(1, Math.min(finalPlan.repeat ?? 1, 10));
   const missions: Mission[] = [];
   const tasks: Task[] = [];
+  const targetMinutes = requestedMinutes(trimmed);
 
   for (let index = 0; index < repeat; index += 1) {
     const created = await createMission(store, {
@@ -151,7 +152,14 @@ export async function handleCommand(
       objective: finalPlan.objective,
       workflowKey: finalPlan.workflow,
       steps,
-      context: { instruction: trimmed, batch_index: index, batch_size: repeat },
+      context: {
+        instruction: trimmed,
+        batch_index: index,
+        batch_size: repeat,
+        // Read by the Scriptwriter, whichever planner (model or local) built
+        // the mission — the length is the operator's, not the planner's.
+        ...(targetMinutes ? { target_minutes: targetMinutes } : {}),
+      },
     });
     missions.push(created.mission);
     tasks.push(...created.tasks);
@@ -378,7 +386,26 @@ function isPokemon(instruction: string): boolean {
  * a fifteen-step production mission instead.
  */
 const MAKE_ONE_VIDEO =
-  /\b(create|make|produce|prepare|build)\s+(?:me\s+)?(?:a|an|one|another)\s+(?:new\s+|faceless\s+|youtube\s+|full\s+|long[- ]form\s+)*(video|documentary|short)\b/i;
+  /\b(create|make|produce|prepare|build)\s+(?:me\s+)?(?:a|an|one|another)\s+(?:(?:new|faceless|youtube|full|long[- ]form|pok[eé]mon|(?:\d{1,3}|[a-z]+(?:[- ][a-z]+)?)[- ]?min(?:ute)?s?(?:[- ]long)?)\s+)*(video|documentary|short)\b/i;
+
+/**
+ * "A 10-minute documentary" → 10. Only an explicit duration counts; nothing is
+ * inferred, and an implausible one is ignored rather than clamped, so the
+ * Scriptwriter falls back to its own default instead of a number nobody asked
+ * for.
+ */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30,
+};
+
+export function requestedMinutes(instruction: string): number | null {
+  const match = instruction.match(/\b(\d{1,3}|[a-z]+)[- ]?min(?:ute)?s?\b/i);
+  if (!match) return null;
+  const raw = match[1]!.toLowerCase();
+  const value = /^\d+$/.test(raw) ? Number(raw) : (NUMBER_WORDS[raw] ?? NaN);
+  return Number.isFinite(value) && value >= 1 && value <= 60 ? value : null;
+}
 
 /** "Create 3 videos this week" → 3. Anything unbounded falls back to one. */
 function countVideos(instruction: string): number {

@@ -219,6 +219,36 @@ describe('command routing', () => {
     expect(result.plan?.workflow).toBe('pokemon_youtube_video');
   });
 
+  it('routes "a 10-minute documentary about … cards" to production, not card research', async () => {
+    // The headline command. A duration between the article and the noun used
+    // to defeat the video match, so the word "cards" sent it to research-only.
+    const result = await route('Create a 10-minute documentary about the history of Charizard cards.');
+    expect(result.plan?.workflow).toBe('pokemon_youtube_video');
+    expect(result.mission?.context.target_minutes).toBe(10);
+  });
+
+  it('carries the requested length to the Scriptwriter prompt', async () => {
+    const { store } = await makePokemonWorkspace();
+    const command = await handleCommand(
+      store,
+      OWNER_ID,
+      'Make a ten minute Pokémon video about the first Charizard card.',
+    );
+    expect(command.plan?.workflow).toBe('pokemon_youtube_video');
+    const script = command.tasks.find((t) => t.input.capability === 'youtube.script.write')!;
+    const handler = getCapabilityHandler('youtube.script.write')!;
+    const prompt = await handler.buildPrompt!({
+      store,
+      task: script,
+      mission: command.mission,
+      business: null,
+      memory: [],
+      businessMemory: '',
+      previousOutputs: {},
+    } as never);
+    expect(prompt).toMatch(/roughly 10 minutes of narration/);
+  });
+
   it('reads "TCG topics that could make good videos" as research, not as a video', async () => {
     const result = await route('Find Pokémon TCG topics that could make good videos.');
     expect(result.plan?.workflow).toBeNull();

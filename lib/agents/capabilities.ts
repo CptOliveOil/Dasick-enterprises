@@ -283,7 +283,11 @@ const youtubeScript: CapabilityHandler<z.infer<typeof youtubeScriptResponseSchem
   schemaName: 'YoutubeScript',
   schema: youtubeScriptResponseSchema,
   async buildPrompt(ctx) {
-    const targetMinutes = Number(ctx.task.input.target_minutes ?? 16);
+    // The step's own input wins; then the length the operator asked for in
+    // the command (stored on the mission); then the house default.
+    const targetMinutes = Number(
+      ctx.task.input.target_minutes ?? ctx.mission?.context?.target_minutes ?? 16,
+    );
     return [
       baseContext(ctx),
       '',

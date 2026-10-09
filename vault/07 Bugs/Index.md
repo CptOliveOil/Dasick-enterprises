@@ -1,7 +1,7 @@
 ---
 status: living
 created: 2026-08-03
-updated: 2026-08-16
+updated: 2026-10-09
 owner: fayaz
 related:
 tags:
@@ -38,3 +38,4 @@ SORT resolved DESC
 | A graceful-looking failure at creation time that nothing downstream ever reads | [[A Missing Agent Left A Readiness Task Queued Forever]] |
 | Two meaningfully different states sharing one status label | [[A Missing Agent Left A Readiness Task Queued Forever]] |
 | Idempotent provisioning with no path to backfill growth | [[A Missing Agent Left A Readiness Task Queued Forever]] |
+| Tests written against a paraphrase, not the operator's real sentence | [[A Duration In The Command Turned A Video Into Card Research]] |
