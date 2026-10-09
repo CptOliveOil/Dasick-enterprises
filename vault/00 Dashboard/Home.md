@@ -28,7 +28,7 @@ tags:
 | --- | --- |
 | **Phase** | [[Current Phase\|Studio — making Production Mode operable]] |
 | **Latest commit** | `cbc2671` — Studio: real renders, real captions, real licences |
-| **Tests** | 509 passing, 1 skipped (23 files) |
+| **Tests** | 573 passing, 1 skipped (32 files) — 2026-10-09 |
 | **Migrations in repo** | 0001 → 0012 — applied state unverified since 0008; see Settings → Status ([[Migrations]]) |
 | **Mode** | See [[Mode System]] |
 
