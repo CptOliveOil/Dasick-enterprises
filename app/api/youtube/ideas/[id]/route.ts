@@ -4,6 +4,7 @@ import { guardPermission } from '@/lib/auth/session';
 import { logActivity } from '@/lib/agents/activity';
 import { createMission } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -60,5 +61,6 @@ export async function PATCH(
   }
 
   const run = await runMission(store, ownerId, mission.id);
+  continueAfterResponse(store, ownerId, run);
   return NextResponse.json({ idea: updated, mission, run });
 }

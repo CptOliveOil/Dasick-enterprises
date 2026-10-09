@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
 import { recomputeMission, releaseUnblockedTasks } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 import { reclaimStaleTasks } from '@/lib/workflows/reclaim';
 import { runAgent } from '@/lib/agents/engine';
 import { recordOperatorAction } from '@/lib/production/actions';
@@ -87,6 +88,7 @@ export async function POST(
         message: `${label} resumed`,
       });
       const run = await runMission(store, ownerId, id);
+      continueAfterResponse(store, ownerId, run);
       return NextResponse.json({ mission: await store.get('missions', id), run });
     }
 
@@ -206,7 +208,9 @@ export async function POST(
         for (const child of children) {
           if (child.status === 'completed' || child.status === 'cancelled') continue;
           await retryMissionTasks(store, ownerId, child.id);
-          runs.push(await runMission(store, ownerId, child.id));
+          const childRun = await runMission(store, ownerId, child.id);
+          continueAfterResponse(store, ownerId, childRun);
+          runs.push(childRun);
           retriedChildren += 1;
         }
         await recordOperatorAction(store, {
@@ -246,6 +250,7 @@ export async function POST(
       });
 
       const run = await runMission(store, ownerId, id);
+      continueAfterResponse(store, ownerId, run);
       return NextResponse.json({
         retried: resettable,
         kept,

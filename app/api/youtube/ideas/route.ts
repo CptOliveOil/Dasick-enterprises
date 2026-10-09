@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getStore } from '@/lib/db';
 import { createMission } from '@/lib/workflows/engine';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
     });
 
     const run = await runMission(store, ownerId, mission.id);
+    continueAfterResponse(store, ownerId, run);
     const ideas = await store.list('youtube_ideas', {
       where: { mission_id: mission.id },
       orderBy: { column: 'score', ascending: false },

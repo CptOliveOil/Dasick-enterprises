@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guardPermission } from '@/lib/auth/session';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 import { dataErrorResponse } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,7 @@ export async function POST(
 
   try {
     const run = await runMission(store, ownerId, id);
+    continueAfterResponse(store, ownerId, run);
     return NextResponse.json(run);
   } catch (error) {
     const data = dataErrorResponse(error);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
 import { ApprovalRefused, resolveApproval } from '@/lib/workflows/approvals';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -49,6 +50,7 @@ export async function POST(
       result.shouldContinue && result.missionId
         ? await runMission(store, ownerId, result.missionId)
         : null;
+    continueAfterResponse(store, ownerId, run);
 
     return NextResponse.json({ approval: result.approval, run });
   } catch (error) {

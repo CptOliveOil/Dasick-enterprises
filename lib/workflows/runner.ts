@@ -21,7 +21,24 @@ export interface RunMissionResult {
   status: string;
   /** Set when the mission stopped for a reason worth showing the operator. */
   haltedBecause: string | null;
+  /**
+   * True when the step ceiling, not the work, ended this call: nothing halted
+   * it and there are still runnable tasks. The caller is expected to continue
+   * — see `continueMission` — or the mission sits idle with work left.
+   */
+  hasMore: boolean;
 }
+
+/**
+ * One run per mission at a time, in this process.
+ *
+ * Two overlapping calls — an approval continuing the mission in the
+ * background while the operator clicks Advance — would both read the same
+ * queued task and both run it, paying for the narration or render twice.
+ * Calls for the same mission queue behind each other instead; the second sees
+ * what the first did. There is one server process, so in-process is enough.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
 
 /**
  * Drives a mission forward: run whatever is runnable, release the steps that
@@ -35,6 +52,43 @@ export async function runMission(
   ownerId: string,
   missionId: string,
   options: RunMissionOptions = {},
+): Promise<RunMissionResult> {
+  const previous = inFlight.get(missionId) ?? Promise.resolve();
+  const current = previous
+    .catch(() => null)
+    .then(() => runMissionExclusive(store, ownerId, missionId, options));
+  inFlight.set(missionId, current);
+  try {
+    return await current;
+  } finally {
+    if (inFlight.get(missionId) === current) inFlight.delete(missionId);
+  }
+}
+
+/**
+ * Runs a mission until something other than the step ceiling stops it: an
+ * approval, a block, a failure, or the end. Bounded by `maxRounds` ceilings,
+ * so a cycle in the graph cannot spin forever.
+ */
+export async function continueMission(
+  store: DataStore,
+  ownerId: string,
+  missionId: string,
+  options: RunMissionOptions & { maxRounds?: number } = {},
+): Promise<RunMissionResult> {
+  const maxRounds = options.maxRounds ?? 10;
+  let result = await runMission(store, ownerId, missionId, options);
+  for (let round = 1; result.hasMore && round < maxRounds; round += 1) {
+    result = await runMission(store, ownerId, missionId, options);
+  }
+  return result;
+}
+
+async function runMissionExclusive(
+  store: DataStore,
+  ownerId: string,
+  missionId: string,
+  options: RunMissionOptions,
 ): Promise<RunMissionResult> {
   const maxSteps = options.maxSteps ?? 6;
   const results: RunAgentResult[] = [];
@@ -102,6 +156,10 @@ export async function runMission(
 
   await releaseUnblockedTasks(store, missionId);
   const mission = await recomputeMission(store, missionId);
+  const hasMore =
+    haltedBecause === null &&
+    results.length >= maxSteps &&
+    (await getRunnableTasks(store, missionId)).length > 0;
 
   // Business Intelligence Memory. Recording lives at both places a mission can
   // reach `completed` — here and in approval resolution — because a mission
@@ -116,5 +174,6 @@ export async function runMission(
     results,
     status: mission?.status ?? 'unknown',
     haltedBecause,
+    hasMore,
   };
 }

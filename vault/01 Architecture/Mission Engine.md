@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-16
+updated: 2026-10-09
 owner: fayaz
 summary: Turns an instruction into a mission with a dependency-ordered task graph
 related:
@@ -77,6 +77,18 @@ tags:
   final.
 - **Derived step keys collide** → fixed; see [[Step Key Collision]].
 - **A step ends without changing status** → the runner would loop; bounded by `maxSteps`.
+- **The step ceiling ends a request with work left** → `runMission` returns
+  `hasMore: true`; the route calls `continueAfterResponse`
+  (`lib/workflows/background.ts`), which keeps running the mission in this
+  server process after the response, until an approval, block, failure or the
+  end. Before 2026-10-09 the mission just sat until someone pressed Advance —
+  see [[Production Stalled After Six Steps]].
+- **Two runs of one mission overlap** (background continuation + an Advance
+  click) → serialised by an in-process per-mission lock in `runMission`, so a
+  queued task is never run — and paid for — twice. One server process is
+  assumed; a second process would need a database-level claim.
+- **The process dies mid-continuation** → nothing resumes it automatically;
+  the next run of that mission (any route) reclaims the stale task first.
 - **A system mission needs business-scoped work** → fixed; see
   [[Operational Readiness Fans Out Instead Of Guessing A Business]]. Never
   solved by attaching a business to the system mission — solved by fanning

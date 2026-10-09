@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { guardPermission } from '@/lib/auth/session';
 import { handleCommand } from '@/lib/agents/manager';
 import { runMission } from '@/lib/workflows/runner';
+import { continueAfterResponse } from '@/lib/workflows/background';
 import { dataErrorResponse } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
           result.missions.map((mission) => runMission(store, ownerId, mission.id)),
         )
       : [];
+    for (const run of runs) continueAfterResponse(store, ownerId, run);
 
     return NextResponse.json({ ...result, run: runs[0] ?? null, runs });
   } catch (error) {

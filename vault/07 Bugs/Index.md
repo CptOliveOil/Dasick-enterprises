@@ -39,3 +39,5 @@ SORT resolved DESC
 | Two meaningfully different states sharing one status label | [[A Missing Agent Left A Readiness Task Queued Forever]] |
 | Idempotent provisioning with no path to backfill growth | [[A Missing Agent Left A Readiness Task Queued Forever]] |
 | Tests written against a paraphrase, not the operator's real sentence | [[A Duration In The Command Turned A Video Into Card Research]] |
+| A test raising a limit so the path fits, hiding the limit from the suite | [[Production Stalled After Six Steps]] |
+| Concurrent callers of one sequencer with no exclusion | [[Production Stalled After Six Steps]] |
