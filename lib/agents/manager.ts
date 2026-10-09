@@ -574,7 +574,29 @@ const ROUTES: Route[] = [
     }),
   },
   {
-    // A full video, when the instruction genuinely asks for one to be made.
+    // A full video on a subject the operator named ("… about the history of
+    // Charizard cards"). The subject is already chosen, so it needs a sourced
+    // research package on *that* subject — not the specialist's ten-idea
+    // search, which ranges deliberately wide and would script whichever idea
+    // came first. See ADR-017.
+    match: MAKE_ONE_VIDEO,
+    business: 'youtube',
+    subject: (instruction) => isPokemon(instruction) && topicOf(instruction).length > 0,
+    requiresCapability: 'youtube.research.package',
+    build: (instruction) => ({
+      mission_title: `Pokémon video: ${topicOf(instruction)}`,
+      objective: `Research, script and produce a faceless Pokémon video on the subject the operator named. Instruction: "${instruction}"`,
+      workflow: 'youtube_video_full',
+      reply:
+        'Mission created. The Researcher builds a sourced research package on exactly that subject, then the Scriptwriter drafts and the Fact Checker verifies. ' +
+        'Prices, valuations and grading populations are only stated where a source supports them. ' +
+        'I will stop for your approval on the script before any production work or spending begins — after that the production agents take it through to a rendered video, ' +
+        'and Quality Control brings it back to you for final approval.',
+      steps: [],
+    }),
+  },
+  {
+    // A full video with no subject named: the specialist chooses one.
     match: MAKE_ONE_VIDEO,
     business: 'youtube',
     subject: isPokemon,

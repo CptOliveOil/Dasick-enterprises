@@ -214,16 +214,22 @@ describe('command routing', () => {
     expect(capabilities(result)).toEqual(['pokemon.research.ideas']);
   });
 
-  it('routes "create a faceless video" to the full production workflow', async () => {
-    const result = await route('Create a faceless video about the strangest Pokémon lore.');
+  it('lets the specialist choose the subject when the operator names none', async () => {
+    const result = await route('Make a Pokémon video.');
     expect(result.plan?.workflow).toBe('pokemon_youtube_video');
+  });
+
+  it('gives a named subject a sourced research package on that subject (ADR-017)', async () => {
+    const result = await route('Create a faceless video about the strangest Pokémon lore.');
+    expect(result.plan?.workflow).toBe('youtube_video_full');
   });
 
   it('routes "a 10-minute documentary about … cards" to production, not card research', async () => {
     // The headline command. A duration between the article and the noun used
     // to defeat the video match, so the word "cards" sent it to research-only.
     const result = await route('Create a 10-minute documentary about the history of Charizard cards.');
-    expect(result.plan?.workflow).toBe('pokemon_youtube_video');
+    expect(result.plan?.workflow).toBe('youtube_video_full');
+    expect(result.mission?.title).toBe('Pokémon video: history of Charizard cards');
     expect(result.mission?.context.target_minutes).toBe(10);
   });
 
@@ -234,7 +240,7 @@ describe('command routing', () => {
       OWNER_ID,
       'Make a ten minute Pokémon video about the first Charizard card.',
     );
-    expect(command.plan?.workflow).toBe('pokemon_youtube_video');
+    expect(command.plan?.workflow).toBe('youtube_video_full');
     const script = command.tasks.find((t) => t.input.capability === 'youtube.script.write')!;
     const handler = getCapabilityHandler('youtube.script.write')!;
     const prompt = await handler.buildPrompt!({
@@ -474,6 +480,14 @@ describe('handoffs into the existing pipeline', () => {
     }
   });
 
+  it('runs the same production tail as the full pipeline, through publish and analytics', () => {
+    const pokemon = WORKFLOW_DEFINITIONS.find((w) => w.key === 'pokemon_youtube_video')!;
+    const full = WORKFLOW_DEFINITIONS.find((w) => w.key === 'youtube_video_full')!;
+    const tail = (steps: typeof full.steps) =>
+      steps.filter((s) => !['research'].includes(s.key)).map((s) => [s.key, s.capability, s.depends_on]);
+    expect(tail(pokemon.steps)).toEqual(tail(full.steps));
+  });
+
   it('still stops at the script approval, like every other video', () => {
     const workflow = WORKFLOW_DEFINITIONS.find((w) => w.key === 'pokemon_youtube_video')!;
     const gate = workflow.steps.find((s) => s.requires_approval);
@@ -486,7 +500,7 @@ describe('handoffs into the existing pipeline', () => {
     const command = await handleCommand(
       store,
       OWNER_ID,
-      'Create a faceless video about the strangest Pokémon lore.',
+      'Make a faceless Pokémon video.',
     );
     expect(command.plan?.workflow).toBe('pokemon_youtube_video');
 

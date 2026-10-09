@@ -207,7 +207,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     key: 'pokemon_youtube_video',
     name: 'Pokémon YouTube Video',
     description:
-      'Pokémon research from the specialist, then the ordinary faceless production pipeline: script, fact check, narration, visuals, assets, thumbnail, metadata, assembly and quality control.',
+      'Pokémon research from the specialist, then the ordinary faceless production pipeline: script, fact check, narration, visuals, assets, thumbnail, metadata, assembly, subtitles, copyright review, quality control, publishing and analytics.',
     steps: [
       {
         // The only step that is new. Everything after it is the existing
@@ -293,10 +293,42 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
         requires_approval: false,
       },
       {
+        key: 'subtitles',
+        title: 'Generate subtitles',
+        capability: 'youtube.subtitles',
+        depends_on: ['assembly'],
+        requires_approval: false,
+      },
+      {
+        key: 'copyright',
+        title: 'Copyright review',
+        capability: 'youtube.copyright.review',
+        depends_on: ['assets'],
+        requires_approval: false,
+      },
+      {
+        // The same tail as youtube_video_full. This workflow fell behind when
+        // subtitles, copyright review, publishing and analytics were added
+        // there — the specialist is meant to replace the research step and
+        // change nothing else.
         key: 'quality_check',
         title: 'Quality check',
         capability: 'youtube.quality_check',
-        depends_on: ['assembly', 'thumbnail_images'],
+        depends_on: ['assembly', 'thumbnail_images', 'subtitles', 'copyright'],
+        requires_approval: false,
+      },
+      {
+        key: 'publish',
+        title: 'Publish to YouTube',
+        capability: 'youtube.publish',
+        depends_on: ['quality_check'],
+        requires_approval: false,
+      },
+      {
+        key: 'analytics',
+        title: 'Collect analytics',
+        capability: 'youtube.analytics.collect',
+        depends_on: ['publish'],
         requires_approval: false,
       },
     ],
