@@ -131,3 +131,42 @@ describe('seeded workforce', () => {
     }
   });
 });
+
+describe('workspaces provisioned with the old level-0 analyst', () => {
+  async function analyticsMission(overrides: { is_custom: boolean }) {
+    const { makeAgent, makeWorkspace } = await import('./helpers');
+    const { store, business } = await makeWorkspace();
+    const analyst = makeAgent({
+      name: 'YouTube Analyst',
+      slug: 'youtube-analyst',
+      business_id: business.id,
+      authority_level: 0,
+      capabilities: ['youtube.analytics.collect'],
+      ...overrides,
+    });
+    await store.insert('agents', analyst);
+    const { mission } = await createMission(store, {
+      ownerId: OWNER_ID,
+      businessId: business.id,
+      title: 'Collect analytics',
+      objective: 'Collect',
+      steps: [{ capability: 'youtube.analytics.collect', title: 'Collect analytics' }],
+    });
+    const result = await continueMission(store, OWNER_ID, mission.id);
+    return { store, analyst, result };
+  }
+
+  it('corrects the built-in agent to the seed level and runs the step', async () => {
+    const { store, analyst, result } = await analyticsMission({ is_custom: false });
+    expect(result.results[0]!.status).toBe('completed');
+    expect((await store.get('agents', analyst.id))!.authority_level).toBe(3);
+    const logs = await store.list('activity_logs', { where: { agent_id: analyst.id } });
+    expect(logs.some((log) => /authority corrected from level 0 to 3/.test(log.message))).toBe(true);
+  });
+
+  it('never raises a custom agent the operator built', async () => {
+    const { store, analyst, result } = await analyticsMission({ is_custom: true });
+    expect(result.results[0]!.status).toBe('failed');
+    expect((await store.get('agents', analyst.id))!.authority_level).toBe(0);
+  });
+});

@@ -64,15 +64,19 @@ when connected — two publish paths, neither of which could upload.
 - "This would publish externally. Approving makes the content public" → says
   it uploads with the visibility shown, private by default.
 
-Not changed: the manual publish action (still 501). **Existing workspaces keep
-their stored authority 0** — provisioning never rewrites an agent's authority,
-deliberately, because it is the operator's security setting. Raise it on the
-agent's page.
+- Existing workspaces: authority cannot be edited anywhere in the product, so a
+  stored 0 on a **built-in** agent can only be the old seed. When such an agent
+  is refused at run time, `correctBuiltInAuthority` raises it to the current
+  seed level, logs that it did, and the step proceeds. Custom agents are never
+  touched.
+
+Not changed: the manual publish action (still 501).
 
 ## Tests added
 `tests/publish-gate.test.ts` — no upload on final approval; one private upload
 after the gate, from an absolute path that exists; a rejected gate uploads
-nothing; every seeded agent with capabilities can actually run.
+nothing; every seeded agent with capabilities can actually run; an old
+level-0 built-in analyst is corrected and runs, a custom one is not touched.
 
 ## Commit
 (see git log — "Give the YouTube upload its own approval")

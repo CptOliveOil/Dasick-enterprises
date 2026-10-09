@@ -240,3 +240,30 @@ function blankAgent(
     updated_at: timestamp,
   });
 }
+
+/**
+ * Corrects a built-in agent stored below the level any run needs.
+ *
+ * The YouTube Analyst was seeded at authority 0 until 2026-10, while holding
+ * publish and analytics capabilities; level 0 refuses every run, so those
+ * capabilities could never work in any workspace provisioned before then.
+ * Authority cannot be edited anywhere in the product, so a stored 0 on a
+ * built-in agent is the old seed, not an operator's decision — and correcting
+ * it to the current seed's level is the only way such a workspace recovers.
+ *
+ * Narrow on purpose: only non-custom agents whose slug matches a seed, only
+ * when stored below 1 and the seed says at least 1. Returns the corrected
+ * agent, or null when there is nothing to correct.
+ */
+export async function correctBuiltInAuthority(
+  store: DataStore,
+  agent: { id: string; slug: string; is_custom: boolean; authority_level: number },
+) {
+  if (agent.is_custom || agent.authority_level >= 1) return null;
+  const seed = AGENT_SEEDS.find((candidate) => candidate.slug === agent.slug);
+  if (!seed || seed.authority_level < 1) return null;
+  return store.update('agents', agent.id, {
+    authority_level: seed.authority_level,
+    updated_at: new Date().toISOString(),
+  });
+}

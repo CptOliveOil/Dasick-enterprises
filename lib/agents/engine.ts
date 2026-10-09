@@ -60,7 +60,7 @@ export async function runAgent(
       task.error ?? 'No agent is assigned to this task.',
     );
   }
-  const agent = await store.get('agents', task.agent_id);
+  let agent = await store.get('agents', task.agent_id);
   if (!agent) {
     return failTaskOnly(store, ownerId, task, `Assigned agent ${task.agent_id} no longer exists.`);
   }
@@ -70,9 +70,27 @@ export async function runAgent(
   }
 
   // Producing work is a level-1 action. Refuse rather than silently proceeding.
-  const decision = canPerform(agent.authority_level, 'draft');
+  let decision = canPerform(agent.authority_level, 'draft');
   if (!decision.allowed) {
-    return fail(store, ownerId, task, agent, decision.reason);
+    // A built-in agent still carrying an old seed's unrunnable level is
+    // corrected to the current seed — see `correctBuiltInAuthority`. Custom
+    // agents are never touched.
+    const { correctBuiltInAuthority } = await import('@/lib/workspace/provision');
+    const corrected = await correctBuiltInAuthority(store, agent);
+    if (corrected) {
+      await logActivity(store, {
+        ownerId,
+        businessId: agent.business_id,
+        agentId: agent.id,
+        kind: 'system',
+        message: `${agent.name}'s authority corrected from level ${agent.authority_level} to ${corrected.authority_level} — the built-in default. Level ${agent.authority_level} cannot run anything.`,
+      });
+      agent = corrected;
+      decision = canPerform(agent.authority_level, 'draft');
+    }
+  }
+  if (!decision.allowed) {
+    return fail(store, ownerId, task, agent, `${agent.name}: ${decision.reason}`);
   }
 
   // A task may name the capability explicitly, which lets one agent hold
