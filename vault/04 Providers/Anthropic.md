@@ -1,7 +1,7 @@
 ---
 status: implemented
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-10-09
 owner: fayaz
 summary: The model behind every `ai` capability
 interface: AIProvider
@@ -54,3 +54,18 @@ Bearer key, server-side only.
 - [[Agent Engine]]
 - [[Structured Output Validation Failure]]
 - [[Budget System]]
+
+## Model compatibility (2026-10-09 audit)
+
+- Default `claude-sonnet-4-5` is still **active** (checked against the current
+  API model list); nothing forces a change.
+- **Assistant prefill returns a 400 on every 4.6+ and 5.x model.** The adapter
+  prefilled `{` on every structured call, so moving `ANTHROPIC_MODEL` forward
+  would have failed every agent run. `acceptsPrefill()` now sends it only to
+  models known to accept it; newer models rely on the prompt and the existing
+  parse-and-repair path. Not yet REAL SERVICE VERIFIED on a newer model.
+- Native structured outputs (`output_config.format`) would be the better long
+  term answer on newer models — **rejected for now**: it changes the request
+  shape for every capability and cannot be verified without paid calls.
+- `PRICING` only lists 4.5-generation models; a newer model's cost estimates
+  fall back to whatever `priceFor` defaults to — check before switching.

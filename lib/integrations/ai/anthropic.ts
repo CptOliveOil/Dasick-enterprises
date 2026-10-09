@@ -53,6 +53,20 @@ function logAttempt(diagnostics: StructuredDiagnostics): void {
   else console.info(line);
 }
 
+/**
+ * Whether the model accepts an assistant-message prefill.
+ *
+ * Every model from the 4.6 generation on (all of 4.6/4.7/4.8 and the 5.x
+ * family) rejects a prefill with a 400, so sending one there fails every
+ * agent call the moment `ANTHROPIC_MODEL` is moved forward. Those models get
+ * the prompt's own JSON instructions and the existing parse-and-repair path
+ * instead. Matching on what is known to accept it keeps an unknown future
+ * model on the safe side.
+ */
+export function acceptsPrefill(model: string): boolean {
+  return /^claude-(?:(?:opus|sonnet|haiku)-4-[015]\b|(?:opus|sonnet|haiku)-4-(?:0|1|5)-|3)/.test(model);
+}
+
 /** USD per million tokens. Used for cost estimates only. */
 const PRICING: Record<string, { input: number; output: number }> = {
   'claude-opus-4-5': { input: 5, output: 25 },
@@ -135,7 +149,7 @@ export class AnthropicProvider implements AIProvider {
     const instructions = describeSchema(schema, options.schemaName);
     // Only when the schema's root really is an object, otherwise the prefill
     // would be a lie about the shape being asked for.
-    const prefill = rootIsObject(schema) ? '{' : undefined;
+    const prefill = rootIsObject(schema) && acceptsPrefill(options.model) ? '{' : undefined;
     const maxTokens = Math.min(
       MAX_STRUCTURED_TOKENS,
       Math.max(options.maxTokens ?? 4096, MIN_STRUCTURED_TOKENS),
