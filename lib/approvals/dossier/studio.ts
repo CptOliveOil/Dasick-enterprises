@@ -23,7 +23,8 @@ import type { DossierPart, LedgerLine, MediaItem, Metric, Panel } from './types'
  */
 export const studioDossier: DossierBuilder = {
   id: 'studio',
-  kinds: ['video'],
+  // The upload gate reviews the same video, so it gets the same screen.
+  kinds: ['video', 'publish'],
 
   async build({ store, approval }): Promise<DossierPart | null> {
     const payload = (approval.payload ?? {}) as Record<string, unknown>;

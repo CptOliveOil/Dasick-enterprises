@@ -150,7 +150,8 @@ export async function makeProductionWorkspace() {
       name: 'YouTube Analyst',
       slug: 'youtube-analyst',
       business_id: business.id,
-      // Publishing is authority level 3 in the seed; the test workforce mirrors
+      // Publishing is authority level 3 in the seed (since 2026-10; it was 0,
+      // which this comment once wrongly claimed to mirror). The test workforce mirrors
       // it so the authority gate is exercised rather than bypassed.
       authority_level: 3,
       capabilities: ['youtube.publish', 'youtube.analytics.collect'],

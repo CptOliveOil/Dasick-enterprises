@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-10-09
 owner: fayaz
 summary: The full 16-step pipeline: idea to a video ready to publish
 key: youtube_video_full
@@ -71,12 +71,19 @@ flowchart TD
 
 ## Approvals
 
-Two gates:
+Three gates:
 
 1. **Script approval** — raised by `fact_check`. Nothing spends until it clears.
    Reviewed through the script [[Approval Dossier]].
 2. **Final approval** — raised by `quality_check`. Reviewed through
-   [[Studio Review]], and **disabled without a playable MP4**.
+   [[Studio Review]], and **disabled without a playable MP4**. Marks the video
+   ready; uploads nothing.
+3. **Upload approval** — raised by `publish` (kind `publish`), only once the
+   publisher is connected and the file exists; same review screen. Approving
+   re-queues the step with `publish_authorised`. Skipped when the channel set
+   `auto_publish_after_approval`. Without a connected publisher the step is
+   **blocked** and names the variables instead. Added 2026-10-09 —
+   [[Final Approval Ran The Upload Step Unasked]].
 
 `copyright` blocks the pipeline itself when an asset is `unresolved`.
 

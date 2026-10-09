@@ -186,7 +186,7 @@ export function explainApproval(approval: Approval): string {
     case 'spend':
       return 'An agent needs permission to spend on this one step. Approving authorises that step only, not future spending.';
     case 'publish':
-      return 'This would publish externally. Approving makes the content public.';
+      return 'This uploads externally. Approving sends the file to the connected platform with the visibility shown — private unless you chose otherwise.';
     case 'thumbnail':
       return 'Approving selects these thumbnail concepts for rendering.';
     case 'idea':
@@ -222,7 +222,7 @@ export function approvalOutcomes(kind: ApprovalKind): { approve: string; reject:
     case 'spend':
       return { approve: 'That one step may spend.', reject: 'The step stays stopped.' };
     case 'publish':
-      return { approve: 'Published externally.', reject: 'Nothing is published.' };
+      return { approve: 'Uploaded with the visibility shown.', reject: 'Nothing is uploaded.' };
     case 'memory':
       return {
         approve: 'The rule applies to future runs.',

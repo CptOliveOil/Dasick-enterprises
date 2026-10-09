@@ -94,8 +94,11 @@ export async function resolveApproval(
       // Approving it re-queues the same step with spending authorised for that
       // task alone, so the agent does the work it was stopped before doing.
       const isSpendGate = approval.kind === 'spend' && approval.payload.authorise_spend === true;
+      // The same for an upload: permission for this one task to go outside.
+      const isPublishGate =
+        approval.kind === 'publish' && approval.payload.authorise_publish === true;
 
-      if (decision === 'approve' && isSpendGate) {
+      if (decision === 'approve' && (isSpendGate || isPublishGate)) {
         await store.update('tasks', task.id, {
           status: 'queued',
           progress: 0,
@@ -103,7 +106,10 @@ export async function resolveApproval(
           error: null,
           started_at: null,
           completed_at: null,
-          input: { ...task.input, spend_authorised: true },
+          input: {
+            ...task.input,
+            ...(isSpendGate ? { spend_authorised: true } : { publish_authorised: true }),
+          },
         });
       } else if (decision === 'approve') {
         await store.update('tasks', task.id, {

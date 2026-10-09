@@ -355,7 +355,11 @@ export const AGENT_SEEDS: AgentSeed[] = [
       'youtube.analytics.collect',
       'youtube.publish',
     ],
-    authority_level: 0,
+    // Level 3: external actions, each stopping for approval — which is what
+    // the upload gate in `youtube.publish` does. This was 0 until 2026-10,
+    // and level 0 refuses every run (producing anything is level 1), so this
+    // agent could never analyse, collect or publish at all.
+    authority_level: 3,
     status: 'idle',
     visual: {
       colour: '#7dd3fc',

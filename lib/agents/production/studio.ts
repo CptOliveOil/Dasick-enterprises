@@ -12,6 +12,8 @@ import type { RunContext } from '@/lib/agents/context';
 import { isSimulatedProvider, summariseProvenance } from '@/lib/production/provenance';
 import { fitToAudio, separate, toSrt, toVtt, validateCues } from '@/lib/media/subtitles';
 import { blockProduction, resolveScript, resolveVideo } from './context';
+import { assetLocalPath } from '@/lib/media/assets';
+import { resolveSettings } from '@/lib/production/resolve';
 import { baseProductionContext } from './prompt';
 
 /**
@@ -368,9 +370,44 @@ export const youtubePublish: CapabilityHandler = {
         : // The safe default. Widening is one click; un-publishing is not.
           'private';
 
+    // Final approval says the video is good. It does not say "upload it now" —
+    // the final review tells the operator exactly that. The upload is the one
+    // irreversible, outward act in the pipeline, so it gets its own explicit
+    // yes, raised only once everything needed for it is genuinely in place
+    // (approved, cleared, connected, rendered). Channels that opted into
+    // auto-publish in settings have already given that yes.
+    const settings = await resolveSettings(ctx.store, ctx.ownerId, video.business_id);
+    if (ctx.task.input.publish_authorised !== true && !settings.auto_publish_after_approval) {
+      return {
+        summary: `ready to upload "${metadata?.title ?? video.title}" as ${visibility} — waiting for you to authorise the upload`,
+        output: { awaiting_publish_approval: true, video_id: video.id, visibility },
+        approval: {
+          kind: 'publish',
+          title: `Upload to YouTube (${visibility}) — ${metadata?.title ?? video.title}`,
+          summary:
+            `Approving uploads the approved file to ${publisher.descriptor.name} as ${visibility}. ` +
+            'Nothing has left this machine yet.',
+          payload: {
+            video_id: video.id,
+            task_id: ctx.task.id,
+            visibility,
+            // Approving re-runs this step with the upload authorised for this
+            // task only — the same mechanism as a spend gate.
+            authorise_publish: true,
+          },
+        },
+      };
+    }
+
+    // The renderer and storage work in storage keys; the uploader needs a file
+    // on this disk. Passing the key itself read a path relative to the server's
+    // working directory, which never exists.
+    const videoPath = await assetLocalPath(finalAsset);
+    const thumbnailPath = thumbnail?.storage_path ? await assetLocalPath(thumbnail) : null;
+
     const result = await publisher.publish({
-      videoPath: finalAsset.storage_path,
-      thumbnailPath: thumbnail?.storage_path ?? null,
+      videoPath,
+      thumbnailPath,
       captionsVtt: captions?.vtt ?? null,
       title: metadata?.title ?? video.title,
       description: metadata?.description ?? '',
