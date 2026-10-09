@@ -1,7 +1,7 @@
 ---
 status: stable
 created: 2026-08-03
-updated: 2026-08-16
+updated: 2026-10-09
 owner: fayaz
 summary: Ordered, additive, never rewritten
 related:
@@ -58,9 +58,26 @@ tags:
 | `0011_workflow_run_identity.sql` | `workflow_runs.workflow_key`; `workflow_definition_id` made nullable, kept only for a genuine custom workflow |
 | `0012_task_lifecycle.sql` | `tasks.claimed_at`, `tasks.heartbeat_at`, `tasks.reclaim_count` — stale-`running`-task recovery. Adds columns only; safe against 0001–0011. |
 
-## Future improvements
+## Drift detection
 
-- Automated drift detection against the live schema
+`lib/db/schema-check.ts` holds one read-only probe per migration
+(`select <signature columns> limit 0`) and reports `current`, `behind` (with
+each missing file named) or `unreachable` (paused, offline, bad key). Shown on
+**Settings → Status**. `tests/schema-check.test.ts` fails if a migration file
+is added without a probe — add one in the same commit.
+
+> [!warning] 0009–0012 are not optional for YouTube
+> Despite their names, every YouTube mission writes
+> `missions.parent_mission_id` (0010), `workflow_runs.workflow_key` (0011) and
+> `tasks.claimed_at`/`heartbeat_at`/`reclaim_count` (0012), and every media
+> asset writes `media_assets.product_id` (0009). A database at 0008 — the last
+> state the vault recorded as applied — fails on the first task insert.
+
+## Applied state
+
+Unknown as of 2026-10-09: the last record is "0001 → 0008" (Home, Production
+Checklist), written before 0009–0012 existed. Check Settings → Status against
+the live project rather than trusting this line.
 
 ## Related
 

@@ -5,6 +5,8 @@ import { INTEGRATION_DEFINITIONS, resolveIntegrations } from '@/lib/integrations
 import { Badge, Panel } from '@/components/ui';
 import { PageShell, Section } from '@/components/layout/PageShell';
 import { SETTINGS_TABS } from '@/components/settings/tabs';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { checkSchema, MIGRATION_PROBES, type SchemaReport } from '@/lib/db/schema-check';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +43,14 @@ const TONE: Record<State, 'emerald' | 'amber' | 'red' | 'neutral'> = {
 export default async function SystemStatusPage() {
   const { isDemo } = await getSession();
   const providers = describeMediaProviders();
+
+  // Configured is not the same as reachable: a paused Supabase project is
+  // fully configured and answers nothing. Ask it, read-only, every load.
+  const client = supabaseConfigured ? await createSupabaseServerClient() : null;
+  const schema: SchemaReport | null = client
+    ? await checkSchema(client as never)
+    : null;
+  const latestMigration = MIGRATION_PROBES[MIGRATION_PROBES.length - 1]!.migration.slice(0, 4);
   const integrations = resolveIntegrations(INTEGRATION_DEFINITIONS);
 
   const youtube = integrations.find((item) => item.kind === 'youtube');
@@ -58,12 +68,28 @@ export default async function SystemStatusPage() {
   const rows: { label: string; state: State; value: string; detail: string }[] = [
     {
       label: 'Supabase',
-      state: supabaseConfigured ? 'connected' : 'simulated',
-      value: supabaseConfigured ? 'Postgres · persistent' : 'In-memory · demo data',
-      detail: supabaseConfigured
-        ? 'Row Level Security is on for every table and queries run as your user. Missions, tasks, memory, research and costs survive a restart.'
-        : 'Data lives in this server process and is reseeded on restart. Nothing is persisted and there are no accounts.',
+      state: !supabaseConfigured ? 'simulated' : schema?.state === 'unreachable' ? 'missing' : 'connected',
+      value: !supabaseConfigured
+        ? 'In-memory · demo data'
+        : schema?.state === 'unreachable'
+          ? 'Configured · not answering'
+          : 'Postgres · persistent',
+      detail: !supabaseConfigured
+        ? 'Data lives in this server process and is reseeded on restart. Nothing is persisted and there are no accounts.'
+        : schema?.state === 'unreachable'
+          ? schema.summary
+          : 'Row Level Security is on for every table and queries run as your user. Missions, tasks, memory, research and costs survive a restart.',
     },
+    ...(schema && schema.state !== 'unreachable'
+      ? [
+          {
+            label: 'Schema',
+            state: (schema.state === 'current' ? 'connected' : 'missing') as State,
+            value: schema.state === 'current' ? `Migrations through ${latestMigration}` : `${schema.missing.length} missing`,
+            detail: schema.summary,
+          },
+        ]
+      : []),
     {
       label: 'Owner login',
       state: supabaseConfigured ? 'connected' : 'missing',
@@ -161,7 +187,7 @@ export default async function SystemStatusPage() {
           <p className="text-[12px] leading-relaxed text-amber-100/80">
             <strong className="font-semibold">This instance has no database and no accounts.</strong>{' '}
             That is correct for local development and wrong for anything else. Configure Supabase,
-            run migrations 0001–0006 in order, and create your owner account before putting this
+            run migrations 0001–{latestMigration} in order, and create your owner account before putting this
             anywhere reachable. Until then everything here is demo data and nothing survives a
             restart.
           </p>
@@ -192,7 +218,9 @@ export default async function SystemStatusPage() {
               ? simulationAllowed()
                 ? 'Demo Mode. A missing provider is stood in for, and everything produced that way is stored as simulated, badged throughout, and never given a public URL. Set DISABLE_SIMULATED_MEDIA=true to make those steps stop instead.'
                 : 'Demo Mode with simulated media turned off. A missing provider stops the step and names what it needs.'
-              : 'This is a real workspace, so nothing is ever simulated — not the model, not the media. A step whose provider is missing fails and tells you exactly which variable to set. You will never be shown invented output that looks like real output.'}
+              : simulationAllowed()
+                ? 'Development Mode: a real workspace in which media providers may still be simulated. Every simulated asset is stored as simulated and badged — check the provider on each asset before publishing anything.'
+                : 'This is a real workspace, so nothing is ever simulated — not the model, not the media. A step whose provider is missing fails and tells you exactly which variable to set. You will never be shown invented output that looks like real output.'}
           </p>
         </Panel>
       </Section>
